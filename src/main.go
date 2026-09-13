@@ -8,11 +8,9 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -59,7 +57,7 @@ func main() {
 	// 面板自身退出时,回收所有受管子进程(代理用完即关)
 	go func() {
 		c := make(chan os.Signal, 1)
-		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+		notifyShutdown(c)
 		<-c
 		log.Println("面板退出,清理受管子进程...")
 		stopAllManaged()

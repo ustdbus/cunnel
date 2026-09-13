@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -63,7 +62,7 @@ func startProc(name string, bin string, args []string, env []string, logPath str
 	cmd.Env = append(os.Environ(), env...)
 	cmd.Stdout = lf
 	cmd.Stderr = lf
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setProcSysAttr(cmd)
 	// 让 ps 显示为随机进程名:覆盖 argv[0]
 	cmd.Args = append([]string{name}, args...)
 	if err := cmd.Start(); err != nil {
@@ -124,11 +123,7 @@ func (p *proc) tailLog(path string) {
 }
 
 func (p *proc) alive() bool {
-	if p == nil || p.cmd == nil || p.cmd.Process == nil {
-		return false
-	}
-	err := p.cmd.Process.Signal(syscall.Signal(0))
-	return err == nil
+	return isProcAlive(p)
 }
 
 func (p *proc) stop() {
@@ -138,21 +133,7 @@ func (p *proc) stop() {
 	if p.cancel != nil {
 		p.cancel()
 	}
-	if p.cmd == nil || p.cmd.Process == nil {
-		return
-	}
-	pgid := p.cmd.Process.Pid
-	_ = syscall.Kill(-pgid, syscall.SIGTERM)
-	done := make(chan struct{})
-	go func() {
-		_, _ = p.cmd.Process.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		_ = syscall.Kill(-pgid, syscall.SIGKILL)
-	}
+	killProcessGroup(p)
 	if p.logF != nil {
 		_ = p.logF.Close()
 	}
