@@ -1,0 +1,28 @@
+# Go binaries & build artifacts
+/bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Runtime logs & temp files
+/logs/
+/tmp/
+*.log
+
+# Runtime data & state
+/data/
+Caddyfile
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+
+# OS and IDE files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

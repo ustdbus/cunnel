@@ -1,0 +1,86 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Binary
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            output: cfd-panel-linux-amd64
+          - goos: linux
+            goarch: arm64
+            output: cfd-panel-linux-arm64
+          - goos: darwin
+            goarch: amd64
+            output: cfd-panel-darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            output: cfd-panel-darwin-arm64
+          - goos: windows
+            goarch: amd64
+            output: cfd-panel-windows-amd64.exe
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          check-latest: true
+
+      - name: Build binary
+        working-directory: ./src
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          go build -v -ldflags="-s -w" -o ../bin/${{ matrix.output }} .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.output }}
+          path: bin/${{ matrix.output }}
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-bins
+
+      - name: Package Release Assets
+        run: |
+          mkdir -p dist
+          find release-bins -type f -exec cp {} dist/ \;
+          ls -lh dist/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

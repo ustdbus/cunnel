@@ -1,0 +1,31 @@
+{
+  "id": "caddy-tunnel-panel",
+  "name": "Cunnel",
+  "version": "1.0.0",
+  "description": "基于 Caddy 的 Cloudflare 隧道与反向代理管理面板:添加隧道(固定/临时)、查看 VPS 进程、查看 Caddy 代理、添加反代路径、检测并安装 Caddy 与 cloudflared。",
+  "description_i18n": {
+    "zh-CN": "基于 Caddy 的 Cloudflare 隧道与反向代理管理面板:添加隧道(固定/临时)、查看 VPS 进程、查看 Caddy 代理、添加反代路径、检测并安装 Caddy 与 cloudflared。",
+    "en-US": "Caddy-based Cloudflare tunnel and reverse-proxy management panel: create tunnels (named/quick), inspect VPS processes, view Caddy proxies, add proxy paths, detect/install Caddy and cloudflared."
+  },
+  "author": "QwenPaw",
+  "type": "app",
+  "entry": {
+    "backend": "backend/main.py",
+    "frontend": "ui/index.js"
+  },
+  "qwenpaw_version": {
+    "min": "2.0.1"
+  },
+  "meta": {
+    "pawapp": {
+      "icon": "🌐",
+      "category": "productivity",
+      "entry_page": "/apps/caddy-tunnel-panel",
+      "launch_scope": "page"
+    },
+    "permissions": {
+      "storage": true
+    },
+    "settings": []
+  }
+}

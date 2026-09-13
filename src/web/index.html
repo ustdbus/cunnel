@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cunnel</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#fff; --bd:rgba(15,23,42,.08); --tx:#1f2937;
+    --sub:#6b7280; --pri:#2563eb; --ok:#16a34a; --warn:#f59e0b; --err:#dc2626;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);
+    font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:20px 18px 60px}
+  h1{font-size:20px;margin:0 0 4px}
+  .muted{color:var(--sub);font-size:12px}
+  .tabs{display:flex;gap:6px;margin:18px 0 14px;flex-wrap:wrap}
+  .tab{padding:7px 14px;border-radius:8px;background:#fff;border:1px solid var(--bd);
+    cursor:pointer;font-size:13px;color:var(--sub)}
+  .tab.on{background:var(--pri);color:#fff;border-color:var(--pri);font-weight:600}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:14px}
+  .card h2{font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+  .stat{background:#fff;border:1px solid var(--bd);border-radius:10px;padding:12px}
+  .stat b{display:block;font-size:22px;margin-top:2px}
+  label{display:block;font-size:12px;color:var(--sub);margin:10px 0 4px}
+  input,select{width:100%;padding:8px 10px;border:1px solid var(--bd);border-radius:8px;
+    font-size:13px;background:#fff;color:var(--tx)}
+  input:focus,select:focus{outline:2px solid rgba(37,99,235,.25);border-color:var(--pri)}
+  .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;align-items:end}
+  button{padding:8px 16px;border-radius:8px;border:1px solid var(--bd);background:#fff;
+    cursor:pointer;font-size:13px;color:var(--tx)}
+  button.pri{background:var(--pri);color:#fff;border-color:var(--pri);font-weight:600}
+  button.danger{color:var(--err);border-color:rgba(220,38,38,.3)}
+  button.sm{padding:4px 10px;font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--bd);vertical-align:top}
+  th{color:var(--sub);font-weight:600;font-size:12px}
+  code{background:#f1f5f9;padding:1px 6px;border-radius:5px;font-size:12px}
+  .pill{display:inline-block;padding:1px 9px;border-radius:20px;font-size:11px;font-weight:600}
+  .pill.run{background:rgba(22,163,74,.12);color:var(--ok)}
+  .pill.stop{background:rgba(107,114,128,.12);color:var(--sub)}
+  .pill.err{background:rgba(220,38,38,.12);color:var(--err)}
+  .pill.quick{background:rgba(245,158,11,.14);color:#b45309}
+  .pill.named{background:rgba(37,99,235,.12);color:var(--pri)}
+  .empty{color:var(--sub);text-align:center;padding:22px;font-size:13px}
+  .msg{padding:9px 12px;border-radius:8px;margin-bottom:10px;font-size:13px;display:none}
+  .msg.ok{background:rgba(22,163,74,.1);color:#15803d;display:block}
+  .msg.err{background:rgba(220,38,38,.1);color:#b91c1c;display:block}
+  pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:auto;
+    max-height:340px;font-size:12px;line-height:1.5}
+  .hide{display:none}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .bar input{width:auto;min-width:180px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🌐 Cunnel</h1>
+  <div class="muted" id="subtitle">基于 Caddy 的隧道与反向代理管理</div>
+
+  <div id="msg" class="msg"></div>
+
+  <div class="tabs">
+    <div class="tab on" data-t="dash">总览</div>
+    <div class="tab" data-t="tunnel">① 添加隧道</div>
+    <div class="tab" data-t="proc">② VPS 进程</div>
+    <div class="tab" data-t="proxy">③ 代理列表</div>
+    <div class="tab" data-t="addproxy">④ 添加代理</div>
+    <div class="tab" data-t="dep">⑤ Caddy 检测</div>
+  </div>
+
+  <!-- 总览 -->
+  <section id="p-dash">
+    <div class="grid" id="stats"></div>
+    <div class="card" style="margin-top:14px">
+      <h2>依赖状态</h2>
+      <div id="depbox"></div>
+      <div class="bar" style="margin-top:12px">
+        <button class="pri" onclick="installCaddy()">检测并安装最新稳定版 Caddy</button>
+        <button onclick="installCFD()">安装 cloudflared</button>
+        <button onclick="loadAll()">刷新</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ① 添加隧道 -->
+  <section id="p-tunnel" class="hide">
+    <div class="card">
+      <h2>① 添加隧道</h2>
+      <div class="row">
+        <div>
+          <label>隧道域名(留空则申请临时隧道)</label>
+          <input id="t-domain" placeholder="例如 a.example.com" />
+        </div>
+        <div>
+          <label>Cloudflare 隧道 Token(留空则申请临时隧道)</label>
+          <input id="t-token" placeholder="eyJhIjoi..." />
+        </div>
+        <div>
+          <label>监听端口(全留空则默认 8080)</label>
+          <input id="t-port" type="number" placeholder="8080" />
+        </div>
+      </div>
+      <div class="muted" style="margin-top:10px">
+        填写域名 + Token → 固定隧道;仅填端口 → 临时隧道由 Caddy 按该端口接管;全不填 → 默认 8080 并申请临时隧道。
+        创建后会为该进程随机生成 <code>4位小写字母+4位小写数字</code> 的进程名。
+      </div>
+      <div class="bar" style="margin-top:12px">
+        <button class="pri" onclick="addTunnel()">创建隧道</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>隧道列表</h2>
+      <div id="tunnels"></div>
+    </div>
+  </section>
+
+  <!-- ② 进程 -->
+  <section id="p-proc" class="hide">
+    <div class="card">
+      <h2>② 当前 VPS 进程</h2>
+      <div class="bar">
+        <input id="pq" placeholder="按进程名 / PID 过滤" oninput="loadProcs()" />
+        <button onclick="loadProcs()">刷新</button>
+        <span class="muted" id="pcount"></span>
+      </div>
+      <div id="procs" style="margin-top:10px"></div>
+    </div>
+  </section>
+
+  <!-- ③ 代理 -->
+  <section id="p-proxy" class="hide">
+    <div class="card">
+      <h2>③ Caddy 当前代理</h2>
+      <div id="proxyinfo"></div>
+      <div id="proxylist" style="margin-top:12px"></div>
+    </div>
+  </section>
+
+  <!-- ④ 添加代理 -->
+  <section id="p-addproxy" class="hide">
+    <div class="card">
+      <h2>④ 添加代理</h2>
+      <div class="row">
+        <div>
+          <label>选择隧道(以域名显示)</label>
+          <select id="a-tunnel"></select>
+        </div>
+        <div>
+          <label>内网端口</label>
+          <input id="a-port" type="number" placeholder="3000" />
+        </div>
+        <div>
+          <label>路径(默认 /)</label>
+          <input id="a-path" placeholder="/" />
+        </div>
+      </div>
+      <div class="muted" style="margin-top:10px">
+        一条隧道流量可以代理多个路径,同一域名下路径不能重复。临时隧道的域名由面板主动抓取后显示。
+      </div>
+      <div class="bar" style="margin-top:12px">
+        <button class="pri" onclick="addProxy()">添加代理</button>
+        <button onclick="loadProxies()">刷新</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ⑤ Caddy -->
+  <section id="p-dep" class="hide">
+    <div class="card">
+      <h2>⑤ Caddy 检测与安装</h2>
+      <div id="depfull"></div>
+      <div class="bar" style="margin-top:12px">
+        <button class="pri" onclick="installCaddy()">拉取最新稳定版</button>
+        <button onclick="caddyAct('start')">启动</button>
+        <button onclick="caddyAct('reload')">热重载</button>
+        <button class="danger" onclick="caddyAct('stop')">停止</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>生成的 Caddyfile</h2>
+      <pre id="caddyfile">加载中...</pre>
+    </div>
+  </section>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let state = { tunnels: [], caddy: {} };
+
+function toast(text, ok = true) {
+  const m = $("#msg");
+  m.className = "msg " + (ok ? "ok" : "err");
+  m.textContent = text;
+  if (ok) setTimeout(() => { m.className = "msg"; }, 5000);
+}
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, {
+    method: opts.method || "GET",
+    headers: { "Content-Type": "application/json" },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  let j;
+  try { j = await r.json(); } catch (e) { throw new Error("响应解析失败"); }
+  if (!j.ok) throw new Error(j.error || "请求失败");
+  return j.data;
+}
+
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.remove("on"));
+  t.classList.add("on");
+  ["dash","tunnel","proc","proxy","addproxy","dep"].forEach(k =>
+    $("#p-" + k).classList.toggle("hide", k !== t.dataset.t));
+  if (t.dataset.t === "proc") loadProcs();
+  if (t.dataset.t === "proxy") loadProxies();
+  if (t.dataset.t === "dep") loadCaddy();
+  if (t.dataset.t === "addproxy") fillTunnelSelect();
+});
+
+// ── 总览 ──
+async function loadAll() {
+  try {
+    const d = await api("/api/overview");
+    state.caddy = d.caddy;
+    $("#stats").innerHTML = `
+      <div class="stat"><span class="muted">隧道总数</span><b>${d.tunnel_count}</b></div>
+      <div class="stat"><span class="muted">运行中隧道</span><b>${d.running_count}</b></div>
+      <div class="stat"><span class="muted">代理规则</span><b>${d.proxy_count}</b></div>
+      <div class="stat"><span class="muted">Caddy</span><b style="font-size:15px">${d.caddy.installed ? (d.caddy.running ? "运行中" : "已安装") : "未安装"}</b></div>
+    `;
+    $("#depbox").innerHTML = depHTML(d.caddy, d.cloudflared);
+    $("#depfull").innerHTML = depHTML(d.caddy, d.cloudflared);
+    $("#subtitle").textContent = "面板目录 " + d.panel_dir;
+  } catch (e) { toast("加载概览失败: " + e.message, false); }
+}
+
+function depHTML(c, f) {
+  const caddyRow = c.installed
+    ? `<tr><td>Caddy</td><td><span class="pill run">已安装</span></td>
+       <td><code>${esc(c.version || "-")}</code></td><td><code>${esc(c.path)}</code></td>
+       <td>${c.running ? `<span class="pill run">运行中 PID ${c.pid}</span>` : '<span class="pill stop">未运行</span>'}</td>
+       <td>${c.latest ? esc(c.latest) : "-"}</td></tr>`
+    : `<tr><td>Caddy</td><td><span class="pill err">未安装</span></td><td>-</td>
+       <td><code>${esc(c.path)}</code></td><td><span class="pill stop">未运行</span></td>
+       <td>${c.latest ? esc(c.latest) : "-"}</td></tr>`;
+  const cfdRow = f && f.installed
+    ? `<tr><td>cloudflared</td><td><span class="pill run">已安装</span></td>
+       <td><code>${esc(f.version || "-")}</code></td><td><code>${esc(f.path)}</code></td><td>-</td>
+       <td>${f.latest ? esc(f.latest) : "-"}</td></tr>`
+    : `<tr><td>cloudflared</td><td><span class="pill err">未安装</span></td><td>-</td>
+       <td><code>${esc(f ? f.path : "-")}</code></td><td>-</td><td>${f && f.latest ? esc(f.latest) : "-"}</td></tr>`;
+  return `<table><thead><tr><th>组件</th><th>状态</th><th>本地版本</th><th>路径</th><th>进程</th><th>最新稳定版</th></tr></thead>
+    <tbody>${caddyRow}${cfdRow}</tbody></table>`;
+}
+
+// ── ① 隧道 ──
+async function addTunnel() {
+  const body = {
+    domain: $("#t-domain").value.trim(),
+    token: $("#t-token").value.trim(),
+    port: parseInt($("#t-port").value || "0", 10) || 0,
+  };
+  try {
+    const d = await api("/api/tunnels", { method: "POST", body });
+    if (d.error) toast("已记录但启动异常: " + d.error, false);
+    else toast(`隧道 ${d.tunnel.name} 已创建(${d.tunnel.mode === "named" ? "固定域名" : "临时隧道"})`);
+    $("#t-domain").value = ""; $("#t-token").value = ""; $("#t-port").value = "";
+    loadTunnels(); fillTunnelSelect();
+  } catch (e) { toast("创建失败: " + e.message, false); }
+}
+
+async function loadTunnels() {
+  try {
+    const d = await api("/api/tunnels");
+    state.tunnels = d.tunnels || [];
+    fillTunnelSelect();
+    if (!state.tunnels.length) {
+      $("#tunnels").innerHTML = `<div class="empty">暂无隧道</div>`; return;
+    }
+    $("#tunnels").innerHTML = `<table><thead><tr>
+      <th>进程名</th><th>模式</th><th>域名</th><th>端口</th><th>PID</th><th>状态</th><th>操作</th>
+      </tr></thead><tbody>${state.tunnels.map(t => `
+      <tr>
+        <td><code>${esc(t.name)}</code></td>
+        <td><span class="pill ${t.mode}">${t.mode === "named" ? "固定域名" : "临时"}</span></td>
+        <td>${t.domain ? `<code>${esc(t.domain)}</code>` : '<span class="muted">获取中…</span>'}</td>
+        <td>${t.port}</td>
+        <td>${t.pid || "-"}</td>
+        <td><span class="pill ${t.status === "running" ? "run" : (t.status === "error" ? "err" : "stop")}">
+          ${t.status === "running" ? "运行中" : (t.status === "error" ? "异常" : "已停止")}</span>
+          ${t.error ? `<div class="muted">${esc(t.error)}</div>` : ""}</td>
+        <td class="bar">
+          ${t.status === "running"
+            ? `<button class="sm" onclick="tAct('${t.id}','stop')">停止</button>`
+            : `<button class="sm" onclick="tAct('${t.id}','start')">启动</button>`}
+          <button class="sm" onclick="tAct('${t.id}','domain')">刷新域名</button>
+          <button class="sm" onclick="showLogs('${t.id}')">日志</button>
+          <button class="sm danger" onclick="delTunnel('${t.id}')">删除</button>
+        </td>
+      </tr>`).join("")}</tbody></table>`;
+  } catch (e) { toast("加载隧道失败: " + e.message, false); }
+}
+
+async function tAct(id, action) {
+  try {
+    if (action === "domain") {
+      const d = await api(`/api/tunnels/${id}/domain`, { method: "POST" });
+      toast(d.domain ? "当前域名: " + d.domain : "域名尚未就绪,请稍后重试", !!d.domain);
+    } else {
+      await api(`/api/tunnels/${id}/${action}`, { method: "POST" });
+      toast(action === "stop" ? "隧道已停止" : "隧道已启动");
+    }
+    loadTunnels(); fillTunnelSelect();
+  } catch (e) { toast("操作失败: " + e.message, false); }
+}
+
+async function delTunnel(id) {
+  if (!confirm("删除该隧道及其代理规则?")) return;
+  try { await api(`/api/tunnels/${id}`, { method: "DELETE" }); toast("已删除"); loadTunnels(); fillTunnelSelect(); }
+  catch (e) { toast("删除失败: " + e.message, false); }
+}
+
+async function showLogs(id) {
+  try {
+    const d = await api(`/api/tunnels/${id}/logs`);
+    const w = window.open("", "_blank", "width=900,height=600");
+    w.document.write(`<title>${esc(d.name)} 日志</title>
+      <pre style="font:12px/1.5 monospace;white-space:pre-wrap;padding:12px">${esc((d.logs || []).join("\n"))}</pre>`);
+  } catch (e) { toast("读取日志失败: " + e.message, false); }
+}
+
+// ── ② 进程 ──
+async function loadProcs() {
+  try {
+    const q = $("#pq").value.trim();
+    const d = await api("/api/processes" + (q ? "?q=" + encodeURIComponent(q) : ""));
+    const ps = d.processes || [];
+    $("#pcount").textContent = `共 ${ps.length} 个进程`;
+    if (!ps.length) { $("#procs").innerHTML = `<div class="empty">无匹配进程</div>`; return; }
+    $("#procs").innerHTML = `<table><thead><tr>
+      <th>PID</th><th>进程名</th><th>监听地址/端口</th></tr></thead>
+      <tbody>${ps.map(p => `<tr>
+        <td>${p.pid}</td>
+        <td>${p.managed ? "🔧 " : ""}<code>${esc(p.name)}</code></td>
+        <td>${(p.listen || []).length ? `<code>${esc(p.listen.join(", "))}</code>` : `<span class="muted">无 TCP 监听</span>`}</td>
+      </tr>`).join("")}</tbody></table>`;
+  } catch (e) { toast("加载进程失败: " + e.message, false); }
+}
+
+// ── ③ 代理 ──
+async function loadProxies() {
+  try {
+    const d = await api("/api/caddy/proxies");
+    const c = d.caddy || {};
+    $("#proxyinfo").innerHTML = `
+      <table><tbody>
+        <tr><th>Caddy 状态</th><td>${c.installed ? `<span class="pill run">已安装</span> ${c.running ? `运行中 (PID ${c.pid})` : "未运行"}` : '<span class="pill err">未安装</span>'}</td>
+        <th>版本</th><td><code>${esc(c.version || "-")}</code></td></tr>
+      </tbody></table>`;
+    const rows = d.proxies || [];
+    $("#proxylist").innerHTML = rows.length ? `<table><thead><tr>
+      <th>域名</th><th>路径</th><th>内网端口</th><th>所属隧道进程</th><th>隧道状态</th><th>操作</th>
+      </tr></thead><tbody>${rows.map(p => `<tr>
+        <td><code>${esc(p.domain)}</code></td>
+        <td><code>${esc(p.path)}</code></td>
+        <td>${p.upstream_port}</td>
+        <td><code>${esc(p.tunnel_name)}</code></td>
+        <td>${p.tunnel_status === "running" ? '<span class="pill run">运行中</span>' : '<span class="pill stop">已停止</span>'}</td>
+        <td><button class="sm danger" onclick="delProxy('${p.id}')">删除</button></td>
+      </tr>`).join("")}</tbody></table>` : `<div class="empty">Caddy 当前没有代理规则</div>`;
+  } catch (e) { toast("加载代理失败: " + e.message, false); }
+}
+
+async function delProxy(id) {
+  if (!confirm("删除该代理规则?")) return;
+  try { await api(`/api/proxies/${id}`, { method: "DELETE" }); toast("已删除"); loadProxies(); }
+  catch (e) { toast("删除失败: " + e.message, false); }
+}
+
+// ── ④ 添加代理 ──
+function fillTunnelSelect() {
+  const sel = $("#a-tunnel");
+  const list = state.tunnels.filter(t => t.domain);
+  const old = sel.value;
+  sel.innerHTML = list.length
+    ? list.map(t => `<option value="${t.id}">${esc(t.domain)}${t.mode === "quick" ? " (临时)" : ""}</option>`).join("")
+    : `<option value="">暂无可用隧道域名</option>`;
+  if (old) sel.value = old;
+}
+
+async function addProxy() {
+  const body = {
+    tunnel_id: $("#a-tunnel").value,
+    upstream_port: parseInt($("#a-port").value || "0", 10) || 0,
+    path: $("#a-path").value.trim() || "/",
+  };
+  if (!body.tunnel_id) return toast("请先选择隧道", false);
+  try {
+    await api("/api/proxies", { method: "POST", body });
+    toast(`代理已添加:${body.path} → 127.0.0.1:${body.upstream_port}`);
+    $("#a-port").value = ""; $("#a-path").value = "";
+    loadProxies();
+  } catch (e) { toast("添加失败: " + e.message, false); }
+}
+
+// ── ⑤ Caddy ──
+async function loadCaddy() {
+  try {
+    const d = await api("/api/caddy");
+    $("#depfull").innerHTML = depHTML(d.caddy, await api("/api/deps").then(x => x.cloudflared));
+    const cf = await api("/api/caddyfile");
+    $("#caddyfile").textContent = cf.content;
+  } catch (e) { toast("加载 Caddy 信息失败: " + e.message, false); }
+}
+
+async function installCaddy() {
+  toast("正在检测并拉取最新稳定版 Caddy…");
+  try { const d = await api("/api/caddy?action=install", { method: "POST" }); toast(d.message + "(" + (d.caddy.version || "") + ")"); loadAll(); loadCaddy(); }
+  catch (e) { toast("安装失败: " + e.message, false); }
+}
+
+async function installCFD() {
+  toast("正在安装 cloudflared…");
+  try { await api("/api/deps?action=install-cloudflared", { method: "POST" }); toast("cloudflared 安装完成"); loadAll(); }
+  catch (e) { toast("安装失败: " + e.message, false); }
+}
+
+async function caddyAct(a) {
+  try { await api(`/api/caddy?action=${a}`, { method: "POST" }); toast("Caddy " + a + " 完成"); loadAll(); loadCaddy(); }
+  catch (e) { toast("操作失败: " + e.message, false); }
+}
+
+loadAll();
+loadTunnels();
+setInterval(() => { loadTunnels(); }, 8000);
+</script>
+</body>
+</html>
