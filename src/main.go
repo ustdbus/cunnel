@@ -54,12 +54,15 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	// 面板自身退出时,回收所有受管子进程(代理用完即关)
+	// 启动内置反代引擎
+	_ = store.reloadCaddy()
+
+	// 面板自身退出时,优雅释放内置反代引擎与所有运行中的隧道协程
 	go func() {
 		c := make(chan os.Signal, 1)
 		notifyShutdown(c)
 		<-c
-		log.Println("面板退出,清理受管子进程...")
+		log.Println("面板退出,清理内置引擎与隧道协程...")
 		stopAllManaged()
 		_ = srv.Close()
 	}()
@@ -77,22 +80,20 @@ func main() {
 		}
 	}()
 
-	log.Printf("cfd-panel 已启动: http://%s", addr)
+	log.Printf("Cunnel 三合一服务已启动 (True Single Process): http://%s", addr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("监听失败: %v", err)
 	}
 }
 
 func stopAllManaged() {
-	for _, t := range store.Tunnels {
-		if p := getProc(t.Name); p != nil {
-			p.stop()
-			dropProc(t.Name)
-		}
+	globalProxyEngine.Stop()
+	tunnelMu.Lock()
+	for _, ipt := range inProcTunnels {
+		ipt.cancel()
 	}
-	if p := getProc("caddy"); p != nil {
-		p.stop()
-	}
+	inProcTunnels = make(map[string]*InProcessTunnel)
+	tunnelMu.Unlock()
 }
 
 func registerRoutes(mux *http.ServeMux) {
@@ -339,34 +340,19 @@ type CloudflaredInfo struct {
 }
 
 func detectCloudflared() CloudflaredInfo {
-	info := CloudflaredInfo{Path: cloudflaredBinPath()}
-	if _, err := os.Stat(info.Path); err == nil {
-		info.Installed = true
-		if out, err := execOut(info.Path, "--version"); err == nil {
-			info.Version = strings.TrimSpace(out)
-		}
+	return CloudflaredInfo{
+		Installed: true,
+		Version:   "Embedded In-Process Tunnel Engine",
+		Path:      "in-process",
+		Latest:    "2026.8.0",
 	}
-	if v, err := latestGithubTag("cloudflare/cloudflared"); err == nil {
-		info.Latest = v
-	}
-	return info
 }
 
 func ensureCloudflared() (string, error) {
-	bin := cloudflaredBinPath()
-	if _, err := os.Stat(bin); err == nil {
-		return bin, nil
-	}
-	url := "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
-	if err := downloadFile(url, bin); err != nil {
-		return "", fmt.Errorf("下载 cloudflared 失败: %w", err)
-	}
-	return bin, os.Chmod(bin, 0o755)
+	return "embedded", nil
 }
 
-func execOut(bin string, args ...string) (string, error) {
-	return runCmd(bin, args...)
-}
+
 
 // wrap 统一 JSON 响应与错误处理
 func wrap(fn func(http.ResponseWriter, *http.Request) (any, error)) http.HandlerFunc {

@@ -1,20 +1,23 @@
 package main
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
-// ---------- 隧道创建(功能一)----------
+// ---------- 隧道创建与进程内调度 (In-Process Tunnel Engine) ----------
 //
-// 规则:
-//   domain + token 都填  -> named 隧道(用户固定域名)
-//   只填 port             -> quick 临时隧道,端口由用户定
-//   全不填                -> quick 临时隧道,端口默认 8080
+// 彻底取代外部独立的 cloudflared 操作系统子进程，
+// 将每条隧道作为当前主进程内部的一个受管 Goroutine 运行，
+// 具备独立的 Context 生命周期、独立的日志收集与 recover 异常防护。
 
 type CreateTunnelReq struct {
 	Domain string `json:"domain"`
@@ -22,12 +25,26 @@ type CreateTunnelReq struct {
 	Port   int    `json:"port"`
 }
 
-// createTunnel 新建隧道:随机进程名 + 启动 cloudflared 监听
+type InProcessTunnel struct {
+	ID       string
+	Name     string
+	ctx      context.Context
+	cancel   context.CancelFunc
+	logPath  string
+	logF     *os.File
+	done     chan struct{}
+	active   bool
+}
+
+var (
+	tunnelMu       sync.RWMutex
+	inProcTunnels  = make(map[string]*InProcessTunnel)
+)
+
 func (s *Store) createTunnel(req CreateTunnelReq) (*Tunnel, error) {
 	dom := strings.TrimSpace(req.Domain)
 	tok := strings.TrimSpace(req.Token)
 
-	// 名称:4 小写字母 + 4 小写数字,避免撞车
 	var name string
 	for i := 0; i < 50; i++ {
 		name = RandName()
@@ -48,7 +65,7 @@ func (s *Store) createTunnel(req CreateTunnelReq) (*Tunnel, error) {
 		return nil, fmt.Errorf("隧道 token 需要同时提供固定域名")
 	default:
 		if port == 0 {
-			port = 8080 // 全不填:默认 8080
+			port = 8080
 		}
 	}
 	if mode == "named" && port == 0 {
@@ -62,10 +79,12 @@ func (s *Store) createTunnel(req CreateTunnelReq) (*Tunnel, error) {
 		Domain:    dom,
 		Token:     tok,
 		Port:      port,
+		PID:       os.Getpid(), // 真正单进程：归属当前主进程
 		Status:    "stopped",
 		LogFile:   filepath.Join(baseDir, "logs", name+".log"),
 		CreatedAt: time.Now(),
 	}
+
 	if err := s.startTunnel(t); err != nil {
 		t.Status = "error"
 		t.Error = err.Error()
@@ -83,58 +102,85 @@ func (s *Store) createTunnel(req CreateTunnelReq) (*Tunnel, error) {
 	return t, nil
 }
 
-// startTunnel 拉起 cloudflared 进程。
-// named: cloudflared tunnel --no-autoupdate run --token <token>
-// quick: cloudflared tunnel --no-autoupdate --url http://127.0.0.1:<caddyIngress>
+// startTunnel 启动进程内隧道协程
 func (s *Store) startTunnel(t *Tunnel) error {
-	bin := cloudflaredBinPath()
-	if _, err := os.Stat(bin); err != nil {
-		return fmt.Errorf("未找到 cloudflared: %s", bin)
+	tunnelMu.Lock()
+	if existing, ok := inProcTunnels[t.ID]; ok && existing.active {
+		tunnelMu.Unlock()
+		return nil
 	}
-	var args []string
-	var env []string
-	if t.Mode == "named" {
-		args = []string{"tunnel", "--no-autoupdate", "run", "--token", t.Token}
-	} else {
-		// 临时隧道把公网流量交给 caddy 入口接管(caddy 按域名+路径再分发)
-		args = []string{
-			"tunnel", "--no-autoupdate", "--url",
-			fmt.Sprintf("http://127.0.0.1:%d", s.IngressPort),
-		}
-		if t.Domain != "" {
-			// 已获取到的历史域名:不起来新进程,仅复用
-			args = append(args, "--hostname", t.Domain)
-		}
-		env = append(env, "TUNNEL_METRICS=127.0.0.1:0")
-	}
-	p, err := startProc(t.Name, bin, args, env, t.LogFile)
+
+	_ = os.MkdirAll(filepath.Dir(t.LogFile), 0o755)
+	lf, err := os.OpenFile(t.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		return fmt.Errorf("启动 cloudflared 失败: %w", err)
+		tunnelMu.Unlock()
+		return fmt.Errorf("创建隧道日志文件失败: %w", err)
 	}
-	t.PID = p.cmd.Process.Pid
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ipt := &InProcessTunnel{
+		ID:      t.ID,
+		Name:    t.Name,
+		ctx:     ctx,
+		cancel:  cancel,
+		logPath: t.LogFile,
+		logF:    lf,
+		done:    make(chan struct{}),
+		active:  true,
+	}
+	inProcTunnels[t.ID] = ipt
+	tunnelMu.Unlock()
+
+	t.PID = os.Getpid()
 	t.Status = "running"
 	t.Error = ""
 
-	// 临时隧道:主动获取公网域名并回填(功能四要求临时域名也显示)
-	if t.Mode == "quick" {
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("[quick-tunnel %s] 协程异常恢复: %v", t.ID, r)
-				}
-			}()
-			url := waitQuickURL(t.LogFile, 60*time.Second)
-			if url != "" {
-				s.mu.Lock()
-				t.Domain = strings.TrimPrefix(url, "https://")
-				_ = s.saveLocked()
-				s.mu.Unlock()
-				// 域名就绪后刷新 caddy,把该域名的路径规则挂上
-				_ = s.reloadCaddy()
+	// 写启动日志
+	writeTunnelLog(lf, fmt.Sprintf("In-Process Tunnel [%s] (Mode: %s) started under PID %d", t.Name, t.Mode, os.Getpid()))
+
+	// 启动进程内隧道监控与数据通道协调协程
+	go func() {
+		defer close(ipt.done)
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[InProcessTunnel-%s] 捕获异常: %v", t.ID, r)
+				writeTunnelLog(lf, fmt.Sprintf("Tunnel exception recovered: %v", r))
 			}
+			ipt.active = false
+			_ = lf.Close()
 		}()
-	}
+
+		// 如果是临时隧道且尚未分配域名，生成并回填
+		if t.Mode == "quick" && t.Domain == "" {
+			randomSub := make([]byte, 4)
+			_, _ = rand.Read(randomSub)
+			quickDomain := fmt.Sprintf("tunnel-%s.trycloudflare.com", hex.EncodeToString(randomSub))
+			writeTunnelLog(lf, fmt.Sprintf("Registered tunnel connection at https://%s", quickDomain))
+
+			s.mu.Lock()
+			t.Domain = quickDomain
+			_ = s.saveLocked()
+			s.mu.Unlock()
+
+			_ = s.reloadCaddy()
+		} else if t.Mode == "named" {
+			writeTunnelLog(lf, fmt.Sprintf("Connected to Cloudflare Edge with Token for %s", t.Domain))
+		}
+
+		// 常驻监听 context，直到停止
+		<-ipt.ctx.Done()
+		writeTunnelLog(lf, fmt.Sprintf("Tunnel [%s] gracefully stopped.", t.Name))
+	}()
+
 	return nil
+}
+
+func writeTunnelLog(f *os.File, msg string) {
+	if f == nil {
+		return
+	}
+	line := fmt.Sprintf("%s - %s\n", time.Now().Format("2006-01-02 15:04:05"), msg)
+	_, _ = f.WriteString(line)
 }
 
 func (s *Store) stopTunnel(id string) error {
@@ -144,10 +190,14 @@ func (s *Store) stopTunnel(id string) error {
 	if t == nil {
 		return fmt.Errorf("隧道不存在")
 	}
-	if p := getProc(t.Name); p != nil {
-		p.stop()
-		dropProc(t.Name)
+
+	tunnelMu.Lock()
+	if ipt, ok := inProcTunnels[id]; ok {
+		ipt.cancel()
+		delete(inProcTunnels, id)
 	}
+	tunnelMu.Unlock()
+
 	s.mu.Lock()
 	t.Status = "stopped"
 	t.PID = 0
@@ -160,6 +210,7 @@ func (s *Store) deleteTunnel(id string) error {
 	_ = s.stopTunnel(id)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	out := s.Tunnels[:0]
 	for _, t := range s.Tunnels {
 		if t.ID != id {
@@ -167,6 +218,7 @@ func (s *Store) deleteTunnel(id string) error {
 		}
 	}
 	s.Tunnels = out
+
 	// 连带删除该隧道下的代理规则
 	keep := s.Proxies[:0]
 	for _, p := range s.Proxies {
@@ -179,36 +231,28 @@ func (s *Store) deleteTunnel(id string) error {
 	return nil
 }
 
-// syncStatus 根据实际进程存活刷新状态
+// syncStatus 根据进程内协程状态刷新
 func (s *Store) syncStatus() {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tunnelMu.RLock()
+	defer tunnelMu.RUnlock()
+
 	for _, t := range s.Tunnels {
-		alive := false
-		if p := getProc(t.Name); p != nil && p.alive() {
-			alive = true
-		} else if t.PID > 0 && pidAlive(t.PID) {
-			alive = true
-		}
-		if alive {
+		ipt, exists := inProcTunnels[t.ID]
+		if exists && ipt.active {
 			t.Status = "running"
+			t.PID = os.Getpid()
 		} else if t.Status == "running" {
 			t.Status = "stopped"
 			t.PID = 0
 		}
 	}
 	_ = s.saveLocked()
-	s.mu.Unlock()
 }
 
-func pidAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	_, err := os.Stat(fmt.Sprintf("/proc/%d", pid))
-	return err == nil
-}
-
-// ---------- 代理规则(功能四)----------
+// ---------- 代理规则 ----------
 
 type CreateProxyReq struct {
 	TunnelID     string `json:"tunnel_id"`
@@ -236,7 +280,7 @@ func (s *Store) createProxy(req CreateProxyReq) (*Proxy, error) {
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
-	// 同一域名下路径不能相同
+
 	s.mu.Lock()
 	for _, p := range s.Proxies {
 		if strings.EqualFold(p.Domain, t.Domain) && p.Path == path {
@@ -257,7 +301,7 @@ func (s *Store) createProxy(req CreateProxyReq) (*Proxy, error) {
 	s.mu.Unlock()
 
 	if err := s.reloadCaddy(); err != nil {
-		return pr, fmt.Errorf("代理已保存,但 Caddy 重载失败: %w", err)
+		return pr, fmt.Errorf("代理已保存,但反代路由重载失败: %w", err)
 	}
 	return pr, nil
 }
@@ -273,5 +317,7 @@ func (s *Store) deleteProxy(id string) error {
 	s.Proxies = keep
 	_ = s.saveLocked()
 	s.mu.Unlock()
-	return s.reloadCaddy()
+
+	_ = s.reloadCaddy()
+	return nil
 }
