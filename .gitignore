@@ -1,5 +1,6 @@
 # Go binaries & build artifacts
 /bin/
+/bin_dist/
 *.exe
 *.dll
 *.so
