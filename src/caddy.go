@@ -279,3 +279,21 @@ func caddyBinPath() string {
 func cloudflaredBinPath() string {
 	return "embedded"
 }
+
+func (s *Store) startCaddy() error {
+	globalProxyEngine.UpdateRoutes(s.Proxies)
+	return globalProxyEngine.EnsureRunning(s.IngressPort)
+}
+
+func (s *Store) buildCaddyfile() string {
+	var b strings.Builder
+	b.WriteString("# Cunnel In-Process Reverse Proxy Engine (Caddy-Compatible)\n")
+	b.WriteString(fmt.Sprintf("# Global Ingress: 127.0.0.1:%d\n\n", s.IngressPort))
+	for _, p := range s.Proxies {
+		b.WriteString(fmt.Sprintf("http://%s%s -> 127.0.0.1:%d\n", p.Domain, p.Path, p.UpstreamPort))
+	}
+	if len(s.Proxies) == 0 {
+		b.WriteString("# 当前无已配置的反代规则\n")
+	}
+	return b.String()
+}

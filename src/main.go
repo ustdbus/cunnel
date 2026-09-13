@@ -279,10 +279,7 @@ func registerRoutes(mux *http.ServeMux) {
 			case "reload":
 				return map[string]any{"ok": true}, store.reloadCaddy()
 			case "stop":
-				if p := getProc("caddy"); p != nil {
-					p.stop()
-					dropProc("caddy")
-				}
+				globalProxyEngine.Stop()
 				return map[string]any{"ok": true}, nil
 			}
 		}
