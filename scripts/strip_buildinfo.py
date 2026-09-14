@@ -37,8 +37,11 @@ def strip_binary(file_path: str) -> bool:
     random_padding = secrets.token_bytes(64)
     data.extend(random_padding)
 
-    with open(file_path, "wb") as f:
+    tmp_file = file_path + ".tmp"
+    with open(tmp_file, "wb") as f:
         f.write(data)
+    os.chmod(tmp_file, 0o755)
+    os.replace(tmp_file, file_path)
 
     print(f"[+] 成功处理: {file_path}")
     print(f"    - 抹除 buildinfo 锚点: {magic_count} 处")

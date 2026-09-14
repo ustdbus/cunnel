@@ -97,13 +97,25 @@ func (e *InProcessProxyEngine) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	http.NotFound(w, r)
 }
 
-func newReverseProxy(port int, stripPath string) *httputil.ReverseProxy {
+func newReverseProxy(port int, stripPath string, incomingHost string) *httputil.ReverseProxy {
 	targetURL, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
+		// 记录原始客户端访问的 Host 与 Proto
+		if incomingHost != "" {
+			req.Header.Set("X-Forwarded-Host", incomingHost)
+		}
+		if req.Header.Get("X-Forwarded-Proto") == "" {
+			req.Header.Set("X-Forwarded-Proto", "https")
+		}
+		// 上游 Host 统一设置为本地目标 (127.0.0.1:port)，确保本地服务主机安全检查 (isIP/Loopback) 100% 通过
 		req.Host = targetURL.Host
+		// 若请求包含 Origin，同步改写为本地上游目标，消除 Next.js/WebUI 等框架的同源跨域安全拦截
+		if req.Header.Get("Origin") != "" {
+			req.Header.Set("Origin", fmt.Sprintf("http://127.0.0.1:%d", port))
+		}
 		if stripPath != "" && stripPath != "/" {
 			if strings.HasPrefix(req.URL.Path, stripPath) {
 				req.URL.Path = strings.TrimPrefix(req.URL.Path, stripPath)
@@ -142,11 +154,15 @@ func (e *InProcessProxyEngine) UpdateRoutes(proxies []*Proxy) {
 			stripPath = path
 		}
 
+		incomingHost := ""
+		if d != "*" {
+			incomingHost = d
+		}
 		route := &ProxyRoute{
 			Path:         path,
 			StripPrefix:  stripPath,
 			UpstreamPort: p.UpstreamPort,
-			Proxy:        newReverseProxy(p.UpstreamPort, stripPath),
+			Proxy:        newReverseProxy(p.UpstreamPort, stripPath, incomingHost),
 		}
 		newRoutes[d] = append(newRoutes[d], route)
 	}
