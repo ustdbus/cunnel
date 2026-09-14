@@ -213,15 +213,26 @@ func listProcesses() ([]PSProc, error) {
 			continue
 		}
 
-		// 1. 过滤 systemd 与面板主进程
-		if pid == 1 || pid == os.Getpid() {
+		// 1. 过滤 systemd 与内核孤立通知
+		if pid == 1 {
+			continue
+		}
+
+		// 2. 若是 Cunnel 自身主进程，明确标记并置顶呈现
+		if pid == os.Getpid() {
+			res = append(res, PSProc{
+				PID:     pid,
+				Name:    "cfd-panel (Cunnel 控制面板 & 内置反代)",
+				Listen:  listen[pid],
+				Managed: true,
+			})
 			continue
 		}
 
 		name := f[1]
 		command := strings.Join(f[2:], " ")
 
-		// 2. 过滤 Cunnel 内部隧道 worker 协程进程与指标端口
+		// 3. 过滤 Cunnel 内部隧道 worker 协程进程与指标端口
 		procMu.Lock()
 		isInternal := false
 		for _, p := range procs {
@@ -235,8 +246,13 @@ func listProcesses() ([]PSProc, error) {
 			continue
 		}
 
-		// 3. 过滤任何属于 cfd-panel 体系的内部工作进程
+		// 4. 过滤其他 cfd-panel 体系的内部工作进程
 		if strings.Contains(name, "cfd-panel") || strings.Contains(command, "cfd-panel") {
+			continue
+		}
+
+		// 只保留有 TCP 监听的真实服务，避免海量无监听内核线程干扰用户视线
+		if len(listen[pid]) == 0 {
 			continue
 		}
 
@@ -245,14 +261,14 @@ func listProcesses() ([]PSProc, error) {
 			Managed: false,
 		})
 	}
-	// 有 TCP 监听的进程排最前,其余按 PID
+
+	// 排序：Cunnel 自身置顶在第一位，其次其他业务监听进程
 	sort.Slice(res, func(i, j int) bool {
-		li, lj := len(res[i].Listen) > 0, len(res[j].Listen) > 0
-		if li != lj {
-			return li
+		if res[i].PID == os.Getpid() {
+			return true
 		}
-		if res[i].Managed != res[j].Managed {
-			return res[i].Managed
+		if res[j].PID == os.Getpid() {
+			return false
 		}
 		return res[i].PID < res[j].PID
 	})

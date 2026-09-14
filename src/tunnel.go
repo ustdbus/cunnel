@@ -94,14 +94,6 @@ func ensureCloudflared() (string, error) {
 	log.Printf("[Worker] Cunnel 隧道核心组件已就绪: %s", dst)
 	return dst, nil
 }
-			return "", fmt.Errorf("安装 cloudflared 文件失败: %w", err2)
-		}
-		_ = os.Remove(tmpFile)
-	}
-	_ = os.Chmod(dst, 0o755)
-	log.Printf("[Cloudflared] cloudflared 已就绪: %s", dst)
-	return dst, nil
-}
 
 func (s *Store) createTunnel(req CreateTunnelReq) (*Tunnel, error) {
 	dom := strings.TrimSpace(req.Domain)
