@@ -264,6 +264,9 @@ func detectCaddy() CaddyInfo {
 
 func (s *Store) reloadCaddy() error {
 	globalProxyEngine.UpdateRoutes(s.Proxies)
+	for _, p := range s.Proxies {
+		log.Printf("[Proxy] 分流规则生效: https://%s%s -> 127.0.0.1:%d", p.Domain, p.Path, p.UpstreamPort)
+	}
 	return globalProxyEngine.EnsureRunning(s.IngressPort)
 }
 

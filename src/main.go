@@ -4,6 +4,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -41,6 +42,10 @@ func main() {
 	}
 	for _, d := range []string{"bin", "logs", "data", "tmp"} {
 		_ = os.MkdirAll(filepath.Join(baseDir, d), 0o755)
+	}
+	// 配置 Cunnel 主业务日志文件，记录隧道连通与分流代理核心运行记录
+	if cLogFile, lErr := os.OpenFile(filepath.Join(baseDir, "logs", "cunnel.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); lErr == nil {
+		log.SetOutput(io.MultiWriter(os.Stdout, cLogFile))
 	}
 	store, err = NewStore(filepath.Join(baseDir, "data", "state.json"))
 	if err != nil {

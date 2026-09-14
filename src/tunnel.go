@@ -247,10 +247,27 @@ func (s *Store) startTunnel(t *Tunnel) error {
 				// 域名就绪后重载内置反代路由
 				_ = s.reloadCaddy()
 				log.Printf("[Tunnel-%s] 临时安全隧道就绪: https://%s -> 本地反代", t.Name, cleanDomain)
+
+				// 获取域名成功 60 秒后自动清理底层日志，只保留简短连通记录
+				go func(pName, domain string) {
+					time.Sleep(60 * time.Second)
+					if pr := getProc(pName); pr != nil {
+						pr.cleanLog(domain)
+						log.Printf("[LogCleaner] 隧道 %s 握手日志已在 60 秒后自动清理，保留连通记录: https://%s", pName, domain)
+					}
+				}(t.Name, cleanDomain)
 			} else {
-				log.Printf("[Tunnel-%s] 等待 Cloudflare 官方分配域名超时，请检查网络或查看日志 %s", t.Name, t.LogFile)
+				log.Printf("[Tunnel-%s] 等待 Cloudflare 官方分配域名超时，请检查网络", t.Name)
 			}
 		}()
+	} else if t.Mode == "named" && t.Domain != "" {
+		// 固定域名隧道同样在启动 60 秒后清理底层冗余输出
+		go func(pName, domain string) {
+			time.Sleep(60 * time.Second)
+			if pr := getProc(pName); pr != nil {
+				pr.cleanLog(domain)
+			}
+		}(t.Name, t.Domain)
 	}
 
 	return nil

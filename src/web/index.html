@@ -591,7 +591,6 @@ async function loadTunnels() {
             ${t.status === "running"
               ? `<button class="sm" onclick="tAct('${t.id}','stop')">停止</button>`
               : `<button class="sm" onclick="tAct('${t.id}','start')">启动</button>`}
-            <button class="sm" onclick="showLogs('${t.id}')">日志</button>
             <button class="sm danger" onclick="delTunnel('${t.id}')">删除</button>
           </div>
         </td>
@@ -614,16 +613,6 @@ async function delTunnel(id) {
     toast("隧道已删除");
     loadTunnels(); fillTunnelSelect(); loadAll();
   } catch (e) { toast("删除失败: " + e.message, false); }
-}
-
-async function showLogs(id) {
-  try {
-    const d = await api(`/api/tunnels/${id}/logs`);
-    const w = window.open("", "_blank", "width=860,height=540");
-    w.document.write(`<title>${esc(d.name)} 运行日志</title>
-      <body style="margin:0;background:#0f172a;color:#e2e8f0;padding:16px;">
-      <pre style="font:12px/1.6 monospace;white-space:pre-wrap;">${esc((d.logs || []).join("\n"))}</pre></body>`);
-  } catch (e) { toast("读取日志失败: " + e.message, false); }
 }
 
 // ── 代理逻辑 ──

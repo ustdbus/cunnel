@@ -52,6 +52,21 @@ func (p *proc) logs() []string {
 	return out
 }
 
+// cleanLog 截断清空底层冗余握手日志，只保留一行连通状态信息
+func (p *proc) cleanLog(domain string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	cleanLine := fmt.Sprintf("[%s] Has been successfully established and connected (https://%s)\n",
+		time.Now().Format("2006-01-02 15:04:05"), domain)
+	p.logBuf = []string{strings.TrimSpace(cleanLine)}
+	if p.logF != nil {
+		_ = p.logF.Truncate(0)
+		_, _ = p.logF.Seek(0, 0)
+		_, _ = p.logF.WriteString(cleanLine)
+		_ = p.logF.Sync()
+	}
+}
+
 // startProc 启动一个受管子进程。name 同时作为 argv[0],让 ps 里显示为随机名。
 func startProc(name string, bin string, args []string, env []string, logPath string) (*proc, error) {
 	if err := os.MkdirAll(dirOf(logPath), 0o755); err != nil {
