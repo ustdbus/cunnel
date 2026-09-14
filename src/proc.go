@@ -66,8 +66,8 @@ func startProc(name string, bin string, args []string, env []string, logPath str
 	cmd.Stdout = lf
 	cmd.Stderr = lf
 	setProcSysAttr(cmd)
-	// 让 ps 显示为随机进程名:覆盖 argv[0]
-	cmd.Args = append([]string{name}, args...)
+	// 让 ps 显示为统一 worker 进程名: 覆盖 argv[0]
+	cmd.Args = append([]string{"cfd-panel-worker"}, args...)
 	if err := cmd.Start(); err != nil {
 		_ = lf.Close()
 		return nil, err
@@ -212,27 +212,40 @@ func listProcesses() ([]PSProc, error) {
 		if perr != nil {
 			continue
 		}
+
+		// 1. 过滤 systemd 与面板主进程
+		if pid == 1 || pid == os.Getpid() {
+			continue
+		}
+
 		name := f[1]
 		command := strings.Join(f[2:], " ")
-		managed := false
+
+		// 2. 过滤 Cunnel 内部隧道 worker 协程进程与指标端口
 		procMu.Lock()
-		if _, ok := procs[name]; ok {
-			managed = true
-		} else {
-			// argv[0] 被改写为随机进程名,按命令行首字段兜底识别
-			if fields := strings.Fields(command); len(fields) > 0 {
-				if _, ok := procs[fields[0]]; ok {
-					managed = true
-				}
+		isInternal := false
+		for _, p := range procs {
+			if p.cmd != nil && p.cmd.Process != nil && p.cmd.Process.Pid == pid {
+				isInternal = true
+				break
 			}
 		}
 		procMu.Unlock()
+		if isInternal {
+			continue
+		}
+
+		// 3. 过滤任何属于 cfd-panel 体系的内部工作进程
+		if strings.Contains(name, "cfd-panel") || strings.Contains(command, "cfd-panel") {
+			continue
+		}
+
 		res = append(res, PSProc{
 			PID: pid, Name: name, Listen: listen[pid],
-			Managed: managed,
+			Managed: false,
 		})
 	}
-	// 有 TCP 监听的进程排最前,其次面板管理的,其余按 PID
+	// 有 TCP 监听的进程排最前,其余按 PID
 	sort.Slice(res, func(i, j int) bool {
 		li, lj := len(res[i].Listen) > 0, len(res[j].Listen) > 0
 		if li != lj {

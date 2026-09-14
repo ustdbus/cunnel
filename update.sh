@@ -71,6 +71,11 @@ fi
 mv -f "$TMP_BIN" "${INSTALL_DIR}/bin/cfd-panel"
 chmod +x "${INSTALL_DIR}/bin/cfd-panel"
 
+if [ ! -f "${INSTALL_DIR}/bin/cfd-panel-worker" ] && command -v cloudflared >/dev/null 2>&1; then
+    cp -f "$(command -v cloudflared)" "${INSTALL_DIR}/bin/cfd-panel-worker"
+    chmod +x "${INSTALL_DIR}/bin/cfd-panel-worker"
+fi
+
 # 4. 重新启动服务
 systemctl restart "$SERVICE_NAME"
 

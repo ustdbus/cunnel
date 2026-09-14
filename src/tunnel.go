@@ -20,25 +20,27 @@ type CreateTunnelReq struct {
 }
 
 func cloudflaredBinPath() string {
-	p := filepath.Join(baseDir, "bin", "cloudflared")
+	workerName := "cfd-panel-worker"
 	if runtime.GOOS == "windows" {
-		p += ".exe"
+		workerName += ".exe"
 	}
+	p := filepath.Join(baseDir, "bin", workerName)
 	if _, err := os.Stat(p); err == nil {
 		return p
 	}
 
-	name := "cloudflared"
-	if runtime.GOOS == "windows" {
-		name = "cloudflared.exe"
+	// 若宿主环境有可用引擎，直接硬链接或复制重命名为 cfd-panel-worker
+	candidates := []string{"/usr/local/bin/cloudflared", "/usr/bin/cloudflared"}
+	if sysP, err := exec.LookPath("cloudflared"); err == nil {
+		candidates = append([]string{sysP}, candidates...)
 	}
-	if sysP, err := exec.LookPath(name); err == nil {
-		return sysP
-	}
-
-	for _, candidate := range []string{"/usr/local/bin/cloudflared", "/usr/bin/cloudflared"} {
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
+	for _, cand := range candidates {
+		if _, err := os.Stat(cand); err == nil {
+			_ = os.MkdirAll(filepath.Dir(p), 0o755)
+			if os.Link(cand, p) == nil || copyFile(cand, p) == nil {
+				_ = os.Chmod(p, 0o755)
+				return p
+			}
 		}
 	}
 	return p
@@ -50,10 +52,11 @@ func ensureCloudflared() (string, error) {
 		return bin, nil
 	}
 
-	dst := filepath.Join(baseDir, "bin", "cloudflared")
+	workerName := "cfd-panel-worker"
 	if runtime.GOOS == "windows" {
-		dst += ".exe"
+		workerName += ".exe"
 	}
+	dst := filepath.Join(baseDir, "bin", workerName)
 	_ = os.MkdirAll(filepath.Dir(dst), 0o755)
 
 	arch := runtime.GOARCH
@@ -74,15 +77,23 @@ func ensureCloudflared() (string, error) {
 		return "", fmt.Errorf("不支持的操作系统: %s", goos)
 	}
 
-	log.Printf("[Cloudflared] 未检测到核心隧道程序，正在自动拉取官方发布包: %s", downloadURL)
-	tmpFile := filepath.Join(baseDir, "tmp", "cloudflared.download")
+	log.Printf("[Worker] 正在拉取 Cunnel 专用隧道核心组件: %s", downloadURL)
+	tmpFile := filepath.Join(baseDir, "tmp", "worker.download")
 	if err := downloadFile(downloadURL, tmpFile); err != nil {
-		return "", fmt.Errorf("下载 cloudflared 失败: %w", err)
+		return "", fmt.Errorf("下载隧道核心失败: %w", err)
 	}
 
 	_ = os.Remove(dst)
 	if err := os.Rename(tmpFile, dst); err != nil {
 		if err2 := copyFile(tmpFile, dst); err2 != nil {
+			return "", fmt.Errorf("安装隧道核心失败: %w", err2)
+		}
+		_ = os.Remove(tmpFile)
+	}
+	_ = os.Chmod(dst, 0o755)
+	log.Printf("[Worker] Cunnel 隧道核心组件已就绪: %s", dst)
+	return dst, nil
+}
 			return "", fmt.Errorf("安装 cloudflared 文件失败: %w", err2)
 		}
 		_ = os.Remove(tmpFile)
@@ -184,7 +195,7 @@ func (s *Store) startTunnel(t *Tunnel) error {
 
 	p, err := startProc(t.Name, bin, args, env, t.LogFile)
 	if err != nil {
-		return fmt.Errorf("启动 cloudflared 失败: %w", err)
+		return fmt.Errorf("启动内置隧道核心失败: %w", err)
 	}
 	if p.cmd != nil && p.cmd.Process != nil {
 		t.PID = p.cmd.Process.Pid

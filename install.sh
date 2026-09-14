@@ -96,13 +96,18 @@ else
     fi
 fi
 
-# 2.1 确保 cloudflared 核心存在
-if ! command -v cloudflared >/dev/null 2>&1 && [ ! -f "${INSTALL_DIR}/bin/cloudflared" ]; then
-    echo -e "${YELLOW}>>> 预载 Cloudflare 隧道核心引擎 (${BIN_ARCH})...${PLAIN}"
-    CFD_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-${BIN_ARCH}"
-    if curl -fsSL "$CFD_URL" -o "${INSTALL_DIR}/bin/cloudflared"; then
-        chmod +x "${INSTALL_DIR}/bin/cloudflared"
-        echo -e "${GREEN}>>> 隧道核心引擎就绪!${PLAIN}"
+# 2.1 确保内部隧道 worker 存在并以 cfd-panel-worker 命名
+if [ ! -f "${INSTALL_DIR}/bin/cfd-panel-worker" ]; then
+    if command -v cloudflared >/dev/null 2>&1; then
+        cp -f "$(command -v cloudflared)" "${INSTALL_DIR}/bin/cfd-panel-worker"
+        chmod +x "${INSTALL_DIR}/bin/cfd-panel-worker"
+    else
+        echo -e "${YELLOW}>>> 预载 Cunnel 隧道核心引擎 (${BIN_ARCH})...${PLAIN}"
+        CFD_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-${BIN_ARCH}"
+        if curl -fsSL "$CFD_URL" -o "${INSTALL_DIR}/bin/cfd-panel-worker"; then
+            chmod +x "${INSTALL_DIR}/bin/cfd-panel-worker"
+            echo -e "${GREEN}>>> 隧道核心引擎就绪!${PLAIN}"
+        fi
     fi
 fi
 

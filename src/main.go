@@ -458,21 +458,14 @@ type CloudflaredInfo struct {
 func detectCloudflared() CloudflaredInfo {
 	bin := cloudflaredBinPath()
 	installed := false
-	ver := ""
 	if _, err := os.Stat(bin); err == nil {
 		installed = true
-		if out, err := exec.Command(bin, "version").Output(); err == nil {
-			ver = strings.TrimSpace(string(out))
-		}
-	}
-	if ver == "" && installed {
-		ver = "Cloudflare Managed Tunnel Engine"
 	}
 	return CloudflaredInfo{
 		Installed: installed,
-		Version:   ver,
-		Path:      bin,
-		Latest:    "2026.8.3",
+		Version:   "Cunnel 内置隧道核心 (Worker Engine)",
+		Path:      "cfd-panel-worker (内置组件)",
+		Latest:    "v1.0.7",
 	}
 }
 
