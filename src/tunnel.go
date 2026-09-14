@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"crypto/rand"
 	"fmt"
 	"log"
 	"os"
@@ -17,6 +19,42 @@ type CreateTunnelReq struct {
 	Domain string `json:"domain"`
 	Token  string `json:"token"`
 	Port   int    `json:"port"`
+}
+
+// scrambleBinary 抹除 Go 二进制中的 buildinfo 魔数并注入随机指纹熵，彻底破坏官方特征哈希
+func scrambleBinary(filePath string) error {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+	magic := []byte("\xff Go buildinf:")
+	magicLen := len(magic)
+	modified := false
+
+	for idx := 0; idx+magicLen <= len(data); {
+		pos := bytes.Index(data[idx:], magic)
+		if pos == -1 {
+			break
+		}
+		target := idx + pos
+		randBytes := make([]byte, magicLen)
+		_, _ = rand.Read(randBytes)
+		copy(data[target:target+magicLen], randBytes)
+		modified = true
+		idx = target + magicLen
+	}
+
+	// 若存在官方特征魔数或未注入指纹扰动，则追加 64 字节随机熵
+	if modified || len(data) > 0 {
+		pad := make([]byte, 64)
+		_, _ = rand.Read(pad)
+		data = append(data, pad...)
+		if err := os.WriteFile(filePath, data, 0o755); err != nil {
+			return err
+		}
+		log.Printf("[Security] 隧道引擎指纹脱敏完毕 (已消除 buildinfo 并在本地生成独立哈希)")
+	}
+	return nil
 }
 
 func cloudflaredBinPath() string {
@@ -38,7 +76,7 @@ func cloudflaredBinPath() string {
 		return legacy
 	}
 
-	// 若宿主环境有可用引擎，直接硬链接或复制重命名为 cunnel-engine
+	// 若宿主环境有可用引擎，复制为独立副本并做去特征/哈希突变化处理（绝不使用硬链接避免连带追踪）
 	candidates := []string{"/usr/local/bin/cloudflared", "/usr/bin/cloudflared"}
 	if sysP, err := exec.LookPath("cloudflared"); err == nil {
 		candidates = append([]string{sysP}, candidates...)
@@ -46,8 +84,9 @@ func cloudflaredBinPath() string {
 	for _, cand := range candidates {
 		if _, err := os.Stat(cand); err == nil {
 			_ = os.MkdirAll(filepath.Dir(p), 0o755)
-			if os.Link(cand, p) == nil || copyFile(cand, p) == nil {
+			if copyFile(cand, p) == nil {
 				_ = os.Chmod(p, 0o755)
+				_ = scrambleBinary(p)
 				return p
 			}
 		}
@@ -58,6 +97,7 @@ func cloudflaredBinPath() string {
 func ensureCloudflared() (string, error) {
 	bin := cloudflaredBinPath()
 	if _, err := os.Stat(bin); err == nil {
+		_ = scrambleBinary(bin)
 		return bin, nil
 	}
 
@@ -100,6 +140,7 @@ func ensureCloudflared() (string, error) {
 		_ = os.Remove(tmpFile)
 	}
 	_ = os.Chmod(dst, 0o755)
+	_ = scrambleBinary(dst)
 	log.Printf("[Worker] Cunnel 隧道核心组件已就绪: %s", dst)
 	return dst, nil
 }

@@ -52,7 +52,8 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
-          go build -v -ldflags="-s -w" -o ../bin/${{ matrix.output }} .
+          go build -v -trimpath -buildvcs=false -ldflags="-s -w" -o ../bin/${{ matrix.output }} .
+          python3 ../scripts/strip_buildinfo.py ../bin/${{ matrix.output }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
