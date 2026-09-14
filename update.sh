@@ -11,8 +11,10 @@ YELLOW="\033[33m"
 RED="\033[31m"
 PLAIN="\033[0m"
 
-INSTALL_DIR="/opt/cfd-panel"
+INSTALL_DIR="/opt/cunnel"
+LEGACY_DIR="/opt/cfd-panel"
 SERVICE_NAME="cunnel"
+SERVICE_FILE="/etc/systemd/system/cunnel.service"
 
 echo -e "${GREEN}>>> 开始检查并更新 Cunnel 管理面板...${PLAIN}"
 
@@ -31,6 +33,13 @@ case "$ARCH" in
         ;;
 esac
 
+# 兼容历史 /opt/cfd-panel 迁移
+if [ -d "$LEGACY_DIR" ] && [ ! -L "$LEGACY_DIR" ] && [ ! -d "$INSTALL_DIR" ]; then
+    echo -e "${YELLOW}>>> 迁移历史目录 ${LEGACY_DIR} -> ${INSTALL_DIR}...${PLAIN}"
+    mv "$LEGACY_DIR" "$INSTALL_DIR"
+fi
+ln -sfn "$INSTALL_DIR" "$LEGACY_DIR" 2>/dev/null || true
+
 if [ ! -d "$INSTALL_DIR" ]; then
     echo -e "${YELLOW}>>> 未检测到安装目录 ${INSTALL_DIR}，将执行首次安装...${PLAIN}"
     curl -fsSL https://raw.githubusercontent.com/ustdbus/cunnel/main/install.sh | bash
@@ -38,11 +47,12 @@ if [ ! -d "$INSTALL_DIR" ]; then
 fi
 
 # 2. 下载最新发布版二进制至临时文件
-TMP_BIN="/tmp/cfd-panel-new.$$"
-BIN_URL="https://github.com/ustdbus/cunnel/releases/latest/download/cfd-panel-${BIN_ARCH}"
+TMP_BIN="/tmp/cunnel-new.$$"
+BIN_URL="https://github.com/ustdbus/cunnel/releases/latest/download/cunnel-${BIN_ARCH}"
+FALLBACK_URL="https://github.com/ustdbus/cunnel/releases/latest/download/cfd-panel-${BIN_ARCH}"
 
 echo -e "${YELLOW}>>> 正在获取最新发布版本 (${BIN_ARCH})...${PLAIN}"
-if curl -fsSL "$BIN_URL" -o "$TMP_BIN"; then
+if curl -fsSL "$BIN_URL" -o "$TMP_BIN" || curl -fsSL "$FALLBACK_URL" -o "$TMP_BIN"; then
     chmod +x "$TMP_BIN"
     echo -e "${GREEN}>>> 最新版本下载成功!${PLAIN}"
 else
@@ -68,12 +78,26 @@ if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
     systemctl stop "$SERVICE_NAME" || true
 fi
 
-mv -f "$TMP_BIN" "${INSTALL_DIR}/bin/cfd-panel"
-chmod +x "${INSTALL_DIR}/bin/cfd-panel"
+mv -f "$TMP_BIN" "${INSTALL_DIR}/bin/cunnel"
+chmod +x "${INSTALL_DIR}/bin/cunnel"
+ln -sfn "${INSTALL_DIR}/bin/cunnel" "${INSTALL_DIR}/bin/cfd-panel" 2>/dev/null || true
 
-if [ ! -f "${INSTALL_DIR}/bin/cfd-panel-worker" ] && command -v cloudflared >/dev/null 2>&1; then
-    cp -f "$(command -v cloudflared)" "${INSTALL_DIR}/bin/cfd-panel-worker"
-    chmod +x "${INSTALL_DIR}/bin/cfd-panel-worker"
+# 确保内部隧道引擎 cunnel-engine 就绪
+if [ ! -f "${INSTALL_DIR}/bin/cunnel-engine" ]; then
+    if [ -f "${INSTALL_DIR}/bin/cfd-panel-worker" ]; then
+        cp -f "${INSTALL_DIR}/bin/cfd-panel-worker" "${INSTALL_DIR}/bin/cunnel-engine"
+    elif command -v cloudflared >/dev/null 2>&1; then
+        cp -f "$(command -v cloudflared)" "${INSTALL_DIR}/bin/cunnel-engine"
+    fi
+fi
+chmod +x "${INSTALL_DIR}/bin/cunnel-engine" 2>/dev/null || true
+ln -sfn "${INSTALL_DIR}/bin/cunnel-engine" "${INSTALL_DIR}/bin/cfd-panel-worker" 2>/dev/null || true
+
+# 更新 systemd ExecStart 为 cunnel
+if [ -f "$SERVICE_FILE" ]; then
+    sed -i "s|ExecStart=.*|ExecStart=${INSTALL_DIR}/bin/cunnel|" "$SERVICE_FILE"
+    sed -i "s|WorkingDirectory=.*|WorkingDirectory=${INSTALL_DIR}|" "$SERVICE_FILE"
+    systemctl daemon-reload
 fi
 
 # 4. 重新启动服务
@@ -96,8 +120,7 @@ for i in {1..20}; do
     fi
 done
 
-# 尝试从监听中获取实际绑定的面板端口 (排除内置反代 80 和 2080)
-REAL_PORT=$(ss -tlnp 2>/dev/null | grep -E 'users:\(\("cfd-panel"' | grep -oE '127\.0\.0\.1:[0-9]+' | cut -d: -f2 | grep -vE '^(80|2080)$' | head -n 1 || echo "8971")
+REAL_PORT=$(ss -tlnp 2>/dev/null | grep -E 'users:\(\("(cunnel|cfd-panel)"' | grep -oE '127\.0\.0\.1:[0-9]+' | cut -d: -f2 | grep -vE '^(80|2080)$' | head -n 1 || echo "8971")
 
 echo -e "${GREEN}====================================================${PLAIN}"
 echo -e "${GREEN}  🎉 Cunnel 已成功更新至最新版并平滑重启！${PLAIN}"

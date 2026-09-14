@@ -26,9 +26,18 @@ var (
 
 func main() {
 	var err error
-	baseDir = os.Getenv("CFD_PANEL_DIR")
+	baseDir = os.Getenv("CUNNEL_DIR")
 	if baseDir == "" {
-		baseDir = "/opt/cfd-panel"
+		baseDir = os.Getenv("CFD_PANEL_DIR")
+	}
+	if baseDir == "" {
+		if _, err := os.Stat("/opt/cunnel"); err == nil {
+			baseDir = "/opt/cunnel"
+		} else if _, err := os.Stat("/opt/cfd-panel"); err == nil {
+			baseDir = "/opt/cfd-panel"
+		} else {
+			baseDir = "/opt/cunnel"
+		}
 	}
 	for _, d := range []string{"bin", "logs", "data", "tmp"} {
 		_ = os.MkdirAll(filepath.Join(baseDir, d), 0o755)
@@ -462,9 +471,9 @@ func detectCloudflared() CloudflaredInfo {
 	}
 	return CloudflaredInfo{
 		Installed: installed,
-		Version:   "Cunnel 内置隧道核心 (Worker Engine)",
-		Path:      "cfd-panel-worker (内置组件)",
-		Latest:    "v1.0.7",
+		Version:   "Cunnel 内置隧道核心 (Tunnel Engine)",
+		Path:      "cunnel (内置一体化组件)",
+		Latest:    "v1.0.8",
 	}
 }
 

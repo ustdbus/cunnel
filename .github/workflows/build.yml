@@ -21,19 +21,19 @@ jobs:
         include:
           - goos: linux
             goarch: amd64
-            output: cfd-panel-linux-amd64
+            output: cunnel-linux-amd64
           - goos: linux
             goarch: arm64
-            output: cfd-panel-linux-arm64
+            output: cunnel-linux-arm64
           - goos: darwin
             goarch: amd64
-            output: cfd-panel-darwin-amd64
+            output: cunnel-darwin-amd64
           - goos: darwin
             goarch: arm64
-            output: cfd-panel-darwin-arm64
+            output: cunnel-darwin-arm64
           - goos: windows
             goarch: amd64
-            output: cfd-panel-windows-amd64.exe
+            output: cunnel-windows-amd64.exe
 
     steps:
       - name: Checkout repository
@@ -78,7 +78,13 @@ jobs:
         run: |
           mkdir -p dist
           find release-bins -type f -exec cp {} dist/ \;
-          ls -lh dist/
+          cd dist
+          for f in cunnel-*; do
+            if [ -f "$f" ]; then
+              cp "$f" "${f/cunnel-/cfd-panel-}"
+            fi
+          done
+          ls -lh
 
       - name: Create Release
         uses: softprops/action-gh-release@v2

@@ -20,7 +20,7 @@ type CreateTunnelReq struct {
 }
 
 func cloudflaredBinPath() string {
-	workerName := "cfd-panel-worker"
+	workerName := "cunnel-engine"
 	if runtime.GOOS == "windows" {
 		workerName += ".exe"
 	}
@@ -29,7 +29,16 @@ func cloudflaredBinPath() string {
 		return p
 	}
 
-	// 若宿主环境有可用引擎，直接硬链接或复制重命名为 cfd-panel-worker
+	// 向下兼容历史存在的 cfd-panel-worker
+	legacy := filepath.Join(baseDir, "bin", "cfd-panel-worker")
+	if runtime.GOOS == "windows" {
+		legacy += ".exe"
+	}
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy
+	}
+
+	// 若宿主环境有可用引擎，直接硬链接或复制重命名为 cunnel-engine
 	candidates := []string{"/usr/local/bin/cloudflared", "/usr/bin/cloudflared"}
 	if sysP, err := exec.LookPath("cloudflared"); err == nil {
 		candidates = append([]string{sysP}, candidates...)
@@ -52,7 +61,7 @@ func ensureCloudflared() (string, error) {
 		return bin, nil
 	}
 
-	workerName := "cfd-panel-worker"
+	workerName := "cunnel-engine"
 	if runtime.GOOS == "windows" {
 		workerName += ".exe"
 	}

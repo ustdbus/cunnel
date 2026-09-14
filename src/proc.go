@@ -66,8 +66,8 @@ func startProc(name string, bin string, args []string, env []string, logPath str
 	cmd.Stdout = lf
 	cmd.Stderr = lf
 	setProcSysAttr(cmd)
-	// 让 ps 显示为统一 worker 进程名: 覆盖 argv[0]
-	cmd.Args = append([]string{"cfd-panel-worker"}, args...)
+	// 让 ps 显示为统一进程名: 覆盖 argv[0] 为 cunnel
+	cmd.Args = append([]string{"cunnel"}, args...)
 	if err := cmd.Start(); err != nil {
 		_ = lf.Close()
 		return nil, err
@@ -218,12 +218,24 @@ func listProcesses() ([]PSProc, error) {
 			continue
 		}
 
-		// 2. 若是 Cunnel 自身主进程，明确标记并置顶呈现
+		// 2. 若是 Cunnel 自身主进程，明确标记并置顶呈现，进程名统一为 cunnel
 		if pid == os.Getpid() {
+			ports := listen[pid]
+			mainAddr := fmt.Sprintf("127.0.0.1:%d", actualPort)
+			hasMain := false
+			for _, a := range ports {
+				if strings.Contains(a, strconv.Itoa(actualPort)) {
+					hasMain = true
+					break
+				}
+			}
+			if !hasMain {
+				ports = append([]string{mainAddr}, ports...)
+			}
 			res = append(res, PSProc{
 				PID:     pid,
-				Name:    "cfd-panel (Cunnel 控制面板 & 内置反代)",
-				Listen:  listen[pid],
+				Name:    "cunnel",
+				Listen:  ports,
 				Managed: true,
 			})
 			continue
@@ -246,8 +258,11 @@ func listProcesses() ([]PSProc, error) {
 			continue
 		}
 
-		// 4. 过滤其他 cfd-panel 体系的内部工作进程
-		if strings.Contains(name, "cfd-panel") || strings.Contains(command, "cfd-panel") {
+		// 4. 过滤其他 cunnel / cfd-panel 体系的内部工作进程
+		if (strings.Contains(name, "cunnel") && pid != os.Getpid()) ||
+			strings.Contains(command, "cunnel tunnel") ||
+			strings.Contains(name, "cfd-panel") ||
+			strings.Contains(command, "cfd-panel") {
 			continue
 		}
 
