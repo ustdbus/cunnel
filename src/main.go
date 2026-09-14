@@ -26,6 +26,13 @@ var (
 )
 
 func main() {
+	if handleCLIIfRequested() {
+		return
+	}
+	runServer()
+}
+
+func runServer() {
 	var err error
 	baseDir = os.Getenv("CUNNEL_DIR")
 	if baseDir == "" {

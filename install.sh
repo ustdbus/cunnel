@@ -88,6 +88,8 @@ echo -e "${YELLOW}>>> 下载最新单二进制发布包 (${BIN_ARCH})...${PLAIN}
 if curl -fsSL "$BIN_URL" -o "${INSTALL_DIR}/bin/cunnel" || curl -fsSL "$FALLBACK_URL" -o "${INSTALL_DIR}/bin/cunnel"; then
     chmod +x "${INSTALL_DIR}/bin/cunnel"
     ln -sfn "${INSTALL_DIR}/bin/cunnel" "${INSTALL_DIR}/bin/cfd-panel" 2>/dev/null || true
+    ln -sfn "${INSTALL_DIR}/bin/cunnel" "/usr/local/bin/cunnel" 2>/dev/null || true
+    ln -sfn "${INSTALL_DIR}/bin/cunnel" "/usr/bin/cunnel" 2>/dev/null || true
     echo -e "${GREEN}>>> 下载成功!${PLAIN}"
 else
     echo -e "${YELLOW}>>> 未找到 Release 二进制，正在尝试从源码编译 (需要本地 Go 环境)...${PLAIN}"
@@ -98,6 +100,8 @@ else
         go build -ldflags="-s -w" -o "${INSTALL_DIR}/bin/cunnel" .
         chmod +x "${INSTALL_DIR}/bin/cunnel"
         ln -sfn "${INSTALL_DIR}/bin/cunnel" "${INSTALL_DIR}/bin/cfd-panel" 2>/dev/null || true
+        ln -sfn "${INSTALL_DIR}/bin/cunnel" "/usr/local/bin/cunnel" 2>/dev/null || true
+        ln -sfn "${INSTALL_DIR}/bin/cunnel" "/usr/bin/cunnel" 2>/dev/null || true
         rm -rf "$TMP_DIR"
         echo -e "${GREEN}>>> 源码编译成功!${PLAIN}"
     else
@@ -139,7 +143,8 @@ Environment="CUNNEL_DIR=${INSTALL_DIR}"
 Environment="CFD_PANEL_DIR=${INSTALL_DIR}"
 Environment="CUNNEL_ADDR=127.0.0.1:8971"
 Environment="CFD_PANEL_ADDR=127.0.0.1:8971"
-ExecStart=${INSTALL_DIR}/bin/cunnel
+Environment="CUNNEL_DAEMON=1"
+ExecStart=${INSTALL_DIR}/bin/cunnel server
 Restart=always
 RestartSec=3
 
@@ -178,6 +183,7 @@ else
 echo -e "${YELLOW}  🚀 临时隧道正在建立，请稍后查看: systemctl status cunnel${PLAIN}"
 fi
 echo -e "${GREEN}  本地监听地址: http://127.0.0.1:${REAL_PORT} (冲突自动顺延避让)${PLAIN}"
+echo -e "${CYAN:-$GREEN}  👉 提示: 在终端直接输入 cunnel 即可随时查看面板公网地址与连接信息！${PLAIN}"
 echo -e "${GREEN}  一键更新命令: curl -fsSL https://raw.githubusercontent.com/ustdbus/cunnel/main/update.sh | bash${PLAIN}"
 echo -e "${GREEN}  一键卸载命令: curl -fsSL https://raw.githubusercontent.com/ustdbus/cunnel/main/uninstall.sh | bash${PLAIN}"
 echo -e "${GREEN}  服务管理命令: systemctl status cunnel | restart cunnel${PLAIN}"

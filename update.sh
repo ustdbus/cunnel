@@ -81,6 +81,8 @@ fi
 mv -f "$TMP_BIN" "${INSTALL_DIR}/bin/cunnel"
 chmod +x "${INSTALL_DIR}/bin/cunnel"
 ln -sfn "${INSTALL_DIR}/bin/cunnel" "${INSTALL_DIR}/bin/cfd-panel" 2>/dev/null || true
+ln -sfn "${INSTALL_DIR}/bin/cunnel" "/usr/local/bin/cunnel" 2>/dev/null || true
+ln -sfn "${INSTALL_DIR}/bin/cunnel" "/usr/bin/cunnel" 2>/dev/null || true
 
 # 确保内部隧道引擎 cunnel-engine 就绪
 if [ ! -f "${INSTALL_DIR}/bin/cunnel-engine" ]; then
@@ -93,12 +95,15 @@ fi
 chmod +x "${INSTALL_DIR}/bin/cunnel-engine" 2>/dev/null || true
 ln -sfn "${INSTALL_DIR}/bin/cunnel-engine" "${INSTALL_DIR}/bin/cfd-panel-worker" 2>/dev/null || true
 
-# 更新 systemd ExecStart 为 cunnel 并补充 CUNNEL_ADDR
+# 更新 systemd ExecStart 为 cunnel server 并补充环境变量
 if [ -f "$SERVICE_FILE" ]; then
-    sed -i "s|ExecStart=.*|ExecStart=${INSTALL_DIR}/bin/cunnel|" "$SERVICE_FILE"
+    sed -i "s|ExecStart=.*|ExecStart=${INSTALL_DIR}/bin/cunnel server|" "$SERVICE_FILE"
     sed -i "s|WorkingDirectory=.*|WorkingDirectory=${INSTALL_DIR}|" "$SERVICE_FILE"
     if ! grep -q 'CUNNEL_ADDR=' "$SERVICE_FILE"; then
         sed -i '/CFD_PANEL_ADDR=/i Environment="CUNNEL_ADDR=127.0.0.1:8971"' "$SERVICE_FILE"
+    fi
+    if ! grep -q 'CUNNEL_DAEMON=' "$SERVICE_FILE"; then
+        sed -i '/CUNNEL_ADDR=/a Environment="CUNNEL_DAEMON=1"' "$SERVICE_FILE"
     fi
     systemctl daemon-reload
 fi
@@ -133,5 +138,6 @@ if [ -n "$TUNNEL_URL" ]; then
 echo -e "${GREEN}  🚀 面板安全访问入口: ${TUNNEL_URL}${PLAIN}"
 fi
 echo -e "${GREEN}  本地监听地址: http://127.0.0.1:${REAL_PORT} (仅本地安全回环，冲突自动避让)${PLAIN}"
+echo -e "${CYAN:-$GREEN}  👉 提示: 在终端直接输入 cunnel 即可随时查看面板公网地址与连接信息！${PLAIN}"
 echo -e "${GREEN}  服务管理命令: systemctl status cunnel | restart cunnel${PLAIN}"
 echo -e "${GREEN}====================================================${PLAIN}"
