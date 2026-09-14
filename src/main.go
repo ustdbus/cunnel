@@ -291,9 +291,12 @@ func registerRoutes(mux *http.ServeMux) {
 				return nil, fmt.Errorf("隧道不存在")
 			}
 			if p := getProc(t.Name); p != nil {
-				if u := waitQuickURL(t.LogFile, 5*time.Second); u != "" {
+				if u := waitQuickURL(t.LogFile, 0, 5*time.Second); u != "" {
+					cleanDomain := strings.TrimPrefix(u, "https://")
+					cleanDomain = strings.TrimPrefix(cleanDomain, "http://")
+					cleanDomain = strings.TrimRight(cleanDomain, "/")
 					store.mu.Lock()
-					t.Domain = strings.TrimPrefix(u, "https://")
+					t.Domain = cleanDomain
 					_ = store.saveLocked()
 					store.mu.Unlock()
 				}
