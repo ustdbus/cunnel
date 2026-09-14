@@ -96,8 +96,8 @@ for i in {1..20}; do
     fi
 done
 
-# 尝试从监听中获取实际绑定的端口
-REAL_PORT=$(ss -tlnp 2>/dev/null | grep cfd-panel | grep -oE '127\.0\.0\.1:[0-9]+' | cut -d: -f2 | head -n 1 || echo "8971")
+# 尝试从监听中获取实际绑定的面板端口 (排除内置反代 80 和 2080)
+REAL_PORT=$(ss -tlnp 2>/dev/null | grep -E 'users:\(\("cfd-panel"' | grep -oE '127\.0\.0\.1:[0-9]+' | cut -d: -f2 | grep -vE '^(80|2080)$' | head -n 1 || echo "8971")
 
 echo -e "${GREEN}====================================================${PLAIN}"
 echo -e "${GREEN}  🎉 Cunnel 已成功更新至最新版并平滑重启！${PLAIN}"
