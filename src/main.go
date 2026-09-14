@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,8 +19,9 @@ import (
 var webFS embed.FS
 
 var (
-	baseDir string
-	store   *Store
+	baseDir    string
+	store      *Store
+	actualPort = 8971
 )
 
 func main() {
@@ -36,10 +38,23 @@ func main() {
 		log.Fatalf("状态加载失败: %v", err)
 	}
 
-	addr := os.Getenv("CFD_PANEL_ADDR")
-	if addr == "" {
-		addr = "0.0.0.0:8971"
+	rawHost := "127.0.0.1"
+	prefPort := 8971
+	if envAddr := os.Getenv("CFD_PANEL_ADDR"); envAddr != "" {
+		if h, pStr, err := net.SplitHostPort(envAddr); err == nil {
+			rawHost = h
+			if p, perr := strconv.Atoi(pStr); perr == nil && p > 0 {
+				prefPort = p
+			}
+		}
 	}
+
+	// 智能避让：如果端口被占用，自动递增寻找可用端口
+	ln, listenAddr, realPort, err := listenWithFallback(rawHost, prefPort)
+	if err != nil {
+		log.Fatalf("启动监听失败 (8971~8999 端口均不可用): %v", err)
+	}
+	actualPort = realPort
 
 	mux := http.NewServeMux()
 	registerRoutes(mux)
@@ -49,13 +64,19 @@ func main() {
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 
 	srv := &http.Server{
-		Addr:              addr,
+		Addr:              listenAddr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	// 启动内置反代引擎
 	_ = store.reloadCaddy()
+
+	// 首次启动自动引导：若没有任何隧道，自动申请一条临时隧道并将面板自身实际端口代理出去
+	go func() {
+		time.Sleep(1 * time.Second)
+		autoBootstrapPanelProxy(actualPort)
+	}()
 
 	// 面板自身退出时,优雅释放内置反代引擎与所有运行中的隧道协程
 	go func() {
@@ -80,10 +101,78 @@ func main() {
 		}
 	}()
 
-	log.Printf("Cunnel 三合一服务已启动 (True Single Process): http://%s", addr)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("监听失败: %v", err)
+	log.Printf("Cunnel 三合一服务已启动 (True Single Process): http://%s", listenAddr)
+	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("服务退出: %v", err)
 	}
+}
+
+// listenWithFallback 尝试在首选端口监听，若被占用则自动向后顺延
+func listenWithFallback(host string, startPort int) (net.Listener, string, int, error) {
+	for port := startPort; port < startPort+50; port++ {
+		addr := fmt.Sprintf("%s:%d", host, port)
+		ln, err := net.Listen("tcp", addr)
+		if err == nil {
+			if port != startPort {
+				log.Printf("[PortGuard] 端口 %d 被占用，已自动避让切换至空闲端口 %d", startPort, port)
+			}
+			return ln, addr, port, nil
+		}
+	}
+	return nil, "", 0, fmt.Errorf("无法找到空闲端口")
+}
+
+// autoBootstrapPanelProxy 检查并自动创建一条临时隧道代理控制面板自身实际端口
+func autoBootstrapPanelProxy(port int) {
+	store.mu.Lock()
+	needInit := len(store.Tunnels) == 0 && len(store.Proxies) == 0
+	store.mu.Unlock()
+
+	if !needInit {
+		return
+	}
+
+	log.Printf("[Bootstrap] 检测到全新安装，正在自动申请 Cloudflare 临时隧道并代理本地面板端口 :%d ...", port)
+	tun, err := store.createTunnel(CreateTunnelReq{
+		Port: port,
+	})
+	if err != nil {
+		log.Printf("[Bootstrap] 自动申请临时隧道失败: %v", err)
+		return
+	}
+
+	// 等待分配临时隧道域名
+	for i := 0; i < 15; i++ {
+		time.Sleep(500 * time.Millisecond)
+		store.mu.Lock()
+		t := store.FindTunnel(tun.ID)
+		hasDomain := t != nil && t.Domain != ""
+		store.mu.Unlock()
+		if hasDomain {
+			break
+		}
+	}
+
+	// 创建对面板端口的反代规则
+	_, err = store.createProxy(CreateProxyReq{
+		TunnelID:     tun.ID,
+		Path:         "/",
+		UpstreamPort: port,
+	})
+	if err != nil {
+		log.Printf("[Bootstrap] 自动绑定面板代理规则失败: %v", err)
+		return
+	}
+
+	store.mu.Lock()
+	finalTun := store.FindTunnel(tun.ID)
+	domain := ""
+	if finalTun != nil {
+		domain = finalTun.Domain
+	}
+	store.mu.Unlock()
+
+	log.Printf("[Bootstrap] 面板临时隧道初始化成功! 外网安全访问入口: https://%s (代理本地 %d 端口)", domain, port)
 }
 
 func stopAllManaged() {
@@ -100,13 +189,27 @@ func registerRoutes(mux *http.ServeMux) {
 	// 概览
 	mux.HandleFunc("/api/overview", wrap(func(w http.ResponseWriter, r *http.Request) (any, error) {
 		store.syncStatus()
+		panelTunnelURL := ""
+		store.mu.Lock()
+		for _, p := range store.Proxies {
+			if p.UpstreamPort == actualPort || p.Path == "/" {
+				if t := store.FindTunnel(p.TunnelID); t != nil && t.Domain != "" {
+					panelTunnelURL = "https://" + t.Domain
+					break
+				}
+			}
+		}
+		store.mu.Unlock()
+
 		return map[string]any{
-			"caddy":         detectCaddy(),
-			"cloudflared":   detectCloudflared(),
-			"tunnel_count":  len(store.Tunnels),
-			"running_count": countRunning(),
-			"proxy_count":   len(store.Proxies),
-			"panel_dir":     baseDir,
+			"caddy":            detectCaddy(),
+			"cloudflared":      detectCloudflared(),
+			"tunnel_count":     len(store.Tunnels),
+			"running_count":    countRunning(),
+			"proxy_count":      len(store.Proxies),
+			"panel_dir":        baseDir,
+			"panel_port":       actualPort,
+			"panel_tunnel_url": panelTunnelURL,
 		}, nil
 	}))
 

@@ -13,27 +13,37 @@
 
 ---
 
-## ⚡ 一键安装与部署 (Quick Start)
+## ⚡ 一键安装、更新与卸载 (Quick Start)
 
-### 选项 A：Linux VPS 独立面板一键安装（推荐）
+### 📥 1. Linux VPS 一键安装（推荐）
 
-直接在服务器终端以 root 执行以下命令，自动检测系统架构、配置 systemd 服务守护并启动（默认监听 `0.0.0.0:8971`）：
+直接在服务器终端以 root 执行以下命令，自动检测系统架构、配置仅监听本地回环安全地址（`127.0.0.1:8971`），并**自动申请一条 Cloudflare 临时隧道代理控制面板自身**，安装完成后直接输出免端口、免开放公网防火墙的 HTTPS 安全访问链接：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ustdbus/cunnel/main/install.sh | bash
 ```
 
-### 🗑️ 一键卸载与清理
+### 🔄 2. 一键平滑更新（保留所有配置与隧道状态）
+
+升级到最新版本只需一行命令，自动拉取最新单文件二进制平滑重启，现有数据与隧道状态完好无损：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ustdbus/cunnel/main/update.sh | bash
+# 或者通过安装脚本传入更新参数：
+curl -fsSL https://raw.githubusercontent.com/ustdbus/cunnel/main/install.sh | bash -s -- update
+```
+
+### 🗑️ 3. 一键彻底卸载与清理
 
 如需彻底停止并移除面板、清理 systemd 守护服务及安装文件，直接执行：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ustdbus/cunnel/main/uninstall.sh | bash
-# 或通过安装脚本传入卸载参数：
+# 或：
 curl -fsSL https://raw.githubusercontent.com/ustdbus/cunnel/main/install.sh | bash -s -- uninstall
 ```
 
-### 选项 B：作为 QwenPaw 插件安装
+### 🔌 4. 作为 QwenPaw 插件安装
 
 进入你的 QwenPaw 插件目录安装并生效：
 

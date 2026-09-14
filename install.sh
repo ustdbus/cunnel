@@ -42,9 +42,15 @@ do_uninstall() {
     exit 0
 }
 
-# 检查是否传入了卸载参数
+# 检查是否传入了卸载或更新参数
 if [ "$1" = "uninstall" ] || [ "$1" = "remove" ]; then
     do_uninstall
+fi
+
+if [ "$1" = "update" ] || [ "$1" = "upgrade" ]; then
+    echo -e "${YELLOW}>>> 正在调用一键更新逻辑...${PLAIN}"
+    curl -fsSL https://raw.githubusercontent.com/ustdbus/cunnel/main/update.sh | bash
+    exit 0
 fi
 
 # ---------- 安装逻辑 ----------
@@ -90,8 +96,8 @@ else
     fi
 fi
 
-# 3. 创建 Systemd 服务守护 (监听 0.0.0.0)
-echo -e "${YELLOW}>>> 配置 systemd 守护进程 (监听 0.0.0.0:8971)...${PLAIN}"
+# 3. 创建 Systemd 服务守护 (安全仅监听 127.0.0.1)
+echo -e "${YELLOW}>>> 配置 systemd 守护进程 (本地回环 127.0.0.1:8971)...${PLAIN}"
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=Cunnel - Caddy & Cloudflare Tunnel Management Panel
@@ -102,7 +108,7 @@ Type=simple
 User=root
 WorkingDirectory=${INSTALL_DIR}
 Environment="CFD_PANEL_DIR=${INSTALL_DIR}"
-Environment="CFD_PANEL_ADDR=0.0.0.0:8971"
+Environment="CFD_PANEL_ADDR=127.0.0.1:8971"
 ExecStart=${INSTALL_DIR}/bin/cfd-panel
 Restart=always
 RestartSec=3
@@ -115,13 +121,33 @@ systemctl daemon-reload
 systemctl enable cunnel
 systemctl restart cunnel
 
-# 获取公网 IP 用于友好提示
-SERVER_IP=$(curl -s4m 3 https://api.ipify.org || curl -s4m 3 https://ifconfig.me || echo "你的VPS公网IP")
+# 4. 等待进程自举申请临时隧道
+echo -e "${YELLOW}>>> 正在通过内置引擎自动申请 Cloudflare 临时安全隧道...${PLAIN}"
+PANEL_TUNNEL_URL=""
+for i in {1..12}; do
+    sleep 1
+    if [ -f "${INSTALL_DIR}/data/state.json" ]; then
+        MATCH=$(grep -oE 'tunnel-[a-f0-9]+\.trycloudflare\.com' "${INSTALL_DIR}/data/state.json" 2>/dev/null | head -n 1 || true)
+        if [ -n "$MATCH" ]; then
+            PANEL_TUNNEL_URL="https://${MATCH}"
+            break
+        fi
+    fi
+done
+
+# 尝试从监听中获取实际绑定的端口
+REAL_PORT=$(ss -tlnp 2>/dev/null | grep cfd-panel | grep -oE '127\.0\.0\.1:[0-9]+' | cut -d: -f2 | head -n 1 || echo "8971")
 
 echo -e "${GREEN}====================================================${PLAIN}"
-echo -e "${GREEN}  Cunnel 安装成功并已在后台启动！${PLAIN}"
-echo -e "${GREEN}  外网访问地址: http://${SERVER_IP}:8971${PLAIN}"
-echo -e "${GREEN}  本地监听地址: http://0.0.0.0:8971${PLAIN}"
-echo -e "${GREEN}  服务管理命令: systemctl status cunnel | restart cunnel${PLAIN}"
+echo -e "${GREEN}  🎉 Cunnel 安装成功并已在后台安全启动！${PLAIN}"
+echo -e "${GREEN}  安全特性: 仅监听 127.0.0.1，零公网明文端口暴露${PLAIN}"
+if [ -n "$PANEL_TUNNEL_URL" ]; then
+echo -e "${GREEN}  🚀 面板安全访问入口: ${PANEL_TUNNEL_URL}${PLAIN}"
+else
+echo -e "${YELLOW}  🚀 临时隧道正在建立，请稍后查看: systemctl status cunnel${PLAIN}"
+fi
+echo -e "${GREEN}  本地监听地址: http://127.0.0.1:${REAL_PORT} (冲突自动顺延避让)${PLAIN}"
+echo -e "${GREEN}  一键更新命令: curl -fsSL https://raw.githubusercontent.com/ustdbus/cunnel/main/update.sh | bash${PLAIN}"
 echo -e "${GREEN}  一键卸载命令: curl -fsSL https://raw.githubusercontent.com/ustdbus/cunnel/main/uninstall.sh | bash${PLAIN}"
+echo -e "${GREEN}  服务管理命令: systemctl status cunnel | restart cunnel${PLAIN}"
 echo -e "${GREEN}====================================================${PLAIN}"

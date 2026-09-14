@@ -324,6 +324,7 @@
 
   <!-- 1. 总览看板 -->
   <section id="p-dash">
+    <div id="panel-ingress"></div>
     <div class="stat-grid" id="stats"></div>
 
     <div class="card">
@@ -499,6 +500,29 @@ async function loadAll() {
   try {
     const d = await api("/api/overview");
     state.caddy = d.caddy;
+
+    if (d.panel_tunnel_url) {
+      $("#panel-ingress").innerHTML = `
+        <div class="card" style="border-left: 4px solid var(--pri); margin-bottom: 20px; background: #f8fafc;">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+            <div>
+              <div style="font-weight:700; font-size:14px; color:var(--pri); margin-bottom:4px;">
+                🚀 面板专属临时隧道已就绪 (免端口免公网IP)
+              </div>
+              <div class="muted" style="font-size:12px;">
+                系统已自动分配 Cloudflare 安全穿透入口，可直接通过 HTTPS 免防火墙访问：
+              </div>
+            </div>
+            <a href="${esc(d.panel_tunnel_url)}" target="_blank" class="pill run" style="font-size:13px; padding:6px 16px; text-decoration:none;">
+              🔗 立即访问 ${esc(d.panel_tunnel_url)} ↗
+            </a>
+          </div>
+        </div>
+      `;
+    } else {
+      $("#panel-ingress").innerHTML = "";
+    }
+
     $("#stats").innerHTML = `
       <div class="stat-card">
         <div class="stat-label">隧道总数</div>
@@ -521,7 +545,8 @@ async function loadAll() {
         <div class="stat-sub">In-Process 原生运行</div>
       </div>
     `;
-    $("#subtitle").textContent = "运行目录: " + d.panel_dir + " · 单进程架构";
+    const portStr = d.panel_port ? ` · 本地监听端口: :${d.panel_port}` : "";
+    $("#subtitle").textContent = "运行目录: " + d.panel_dir + " · 单进程架构" + portStr;
   } catch (e) { toast("加载概览失败: " + e.message, false); }
 }
 
