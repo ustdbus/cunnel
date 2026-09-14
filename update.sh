@@ -78,10 +78,10 @@ systemctl restart "$SERVICE_NAME"
 SERVER_IP=$(curl -s4m 3 https://api.ipify.org || curl -s4m 3 https://ifconfig.me || echo "你的VPS公网IP")
 
 TUNNEL_URL=""
-for i in {1..6}; do
-    sleep 0.5
+for i in {1..15}; do
+    sleep 1
     if [ -f "${INSTALL_DIR}/data/state.json" ]; then
-        MATCH=$(grep -oE 'tunnel-[a-f0-9]+\.trycloudflare\.com' "${INSTALL_DIR}/data/state.json" 2>/dev/null | head -n 1 || true)
+        MATCH=$(grep -oE '[a-z0-9][a-z0-9-]*\.trycloudflare\.com' "${INSTALL_DIR}/data/state.json" 2>/dev/null | head -n 1 || true)
         if [ -n "$MATCH" ]; then
             TUNNEL_URL="https://${MATCH}"
             break

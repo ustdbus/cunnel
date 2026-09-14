@@ -141,8 +141,8 @@ func autoBootstrapPanelProxy(port int) {
 		return
 	}
 
-	// 等待分配临时隧道域名
-	for i := 0; i < 15; i++ {
+	// 等待分配临时隧道域名 (最多等待 60 秒)
+	for i := 0; i < 120; i++ {
 		time.Sleep(500 * time.Millisecond)
 		store.mu.Lock()
 		t := store.FindTunnel(tun.ID)
@@ -153,36 +153,47 @@ func autoBootstrapPanelProxy(port int) {
 		}
 	}
 
-	// 创建对面板端口的反代规则
-	_, err = store.createProxy(CreateProxyReq{
-		TunnelID:     tun.ID,
-		Path:         "/",
-		UpstreamPort: port,
-	})
-	if err != nil {
-		log.Printf("[Bootstrap] 自动绑定面板代理规则失败: %v", err)
-		return
-	}
-
 	store.mu.Lock()
 	finalTun := store.FindTunnel(tun.ID)
 	domain := ""
 	if finalTun != nil {
 		domain = finalTun.Domain
 	}
+	hasProxy := false
+	for _, p := range store.Proxies {
+		if p.TunnelID == tun.ID {
+			hasProxy = true
+			break
+		}
+	}
 	store.mu.Unlock()
 
-	log.Printf("[Bootstrap] 面板临时隧道初始化成功! 外网安全访问入口: https://%s (代理本地 %d 端口)", domain, port)
+	if domain != "" && !hasProxy {
+		_, err = store.createProxy(CreateProxyReq{
+			TunnelID:     tun.ID,
+			Path:         "/",
+			UpstreamPort: port,
+		})
+		if err != nil {
+			log.Printf("[Bootstrap] 自动绑定面板代理规则警告: %v", err)
+		}
+	}
+
+	if domain != "" {
+		log.Printf("[Bootstrap] 面板临时安全隧道初始化成功! 外网访问入口: https://%s (代理本地 %d 端口)", domain, port)
+	} else {
+		log.Printf("[Bootstrap] 临时安全隧道正在后台建立，待 Cloudflare 边缘下发域名后将自动生效")
+	}
 }
 
 func stopAllManaged() {
 	globalProxyEngine.Stop()
-	tunnelMu.Lock()
-	for _, ipt := range inProcTunnels {
-		ipt.cancel()
+	procMu.Lock()
+	for _, p := range procs {
+		p.stop()
 	}
-	inProcTunnels = make(map[string]*InProcessTunnel)
-	tunnelMu.Unlock()
+	procs = make(map[string]*proc)
+	procMu.Unlock()
 }
 
 func registerRoutes(mux *http.ServeMux) {
@@ -440,16 +451,24 @@ type CloudflaredInfo struct {
 }
 
 func detectCloudflared() CloudflaredInfo {
-	return CloudflaredInfo{
-		Installed: true,
-		Version:   "Embedded In-Process Tunnel Engine",
-		Path:      "in-process",
-		Latest:    "2026.8.0",
+	bin := cloudflaredBinPath()
+	installed := false
+	ver := ""
+	if _, err := os.Stat(bin); err == nil {
+		installed = true
+		if out, err := exec.Command(bin, "version").Output(); err == nil {
+			ver = strings.TrimSpace(string(out))
+		}
 	}
-}
-
-func ensureCloudflared() (string, error) {
-	return "embedded", nil
+	if ver == "" && installed {
+		ver = "Cloudflare Managed Tunnel Engine"
+	}
+	return CloudflaredInfo{
+		Installed: installed,
+		Version:   ver,
+		Path:      bin,
+		Latest:    "2026.8.3",
+	}
 }
 
 

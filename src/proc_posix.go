@@ -43,3 +43,10 @@ func killProcessGroup(p *proc) {
 		_ = syscall.Kill(-pgid, syscall.SIGKILL)
 	}
 }
+
+func checkProcessAlive(p *os.Process) bool {
+	if p == nil {
+		return false
+	}
+	return p.Signal(syscall.Signal(0)) == nil
+}

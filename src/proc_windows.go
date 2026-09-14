@@ -29,3 +29,7 @@ func killProcessGroup(p *proc) {
 	}
 	_ = p.cmd.Process.Kill()
 }
+
+func checkProcessAlive(p *os.Process) bool {
+	return p != nil
+}

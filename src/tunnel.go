@@ -1,23 +1,17 @@
 package main
 
 import (
-	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
-	"sync"
 	"time"
 )
 
-// ---------- 隧道创建与进程内调度 (In-Process Tunnel Engine) ----------
-//
-// 彻底取代外部独立的 cloudflared 操作系统子进程，
-// 将每条隧道作为当前主进程内部的一个受管 Goroutine 运行，
-// 具备独立的 Context 生命周期、独立的日志收集与 recover 异常防护。
+// ---------- 隧道创建与真实云端调度 ----------
 
 type CreateTunnelReq struct {
 	Domain string `json:"domain"`
@@ -25,21 +19,78 @@ type CreateTunnelReq struct {
 	Port   int    `json:"port"`
 }
 
-type InProcessTunnel struct {
-	ID       string
-	Name     string
-	ctx      context.Context
-	cancel   context.CancelFunc
-	logPath  string
-	logF     *os.File
-	done     chan struct{}
-	active   bool
+func cloudflaredBinPath() string {
+	p := filepath.Join(baseDir, "bin", "cloudflared")
+	if runtime.GOOS == "windows" {
+		p += ".exe"
+	}
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+
+	name := "cloudflared"
+	if runtime.GOOS == "windows" {
+		name = "cloudflared.exe"
+	}
+	if sysP, err := exec.LookPath(name); err == nil {
+		return sysP
+	}
+
+	for _, candidate := range []string{"/usr/local/bin/cloudflared", "/usr/bin/cloudflared"} {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return p
 }
 
-var (
-	tunnelMu       sync.RWMutex
-	inProcTunnels  = make(map[string]*InProcessTunnel)
-)
+func ensureCloudflared() (string, error) {
+	bin := cloudflaredBinPath()
+	if _, err := os.Stat(bin); err == nil {
+		return bin, nil
+	}
+
+	dst := filepath.Join(baseDir, "bin", "cloudflared")
+	if runtime.GOOS == "windows" {
+		dst += ".exe"
+	}
+	_ = os.MkdirAll(filepath.Dir(dst), 0o755)
+
+	arch := runtime.GOARCH
+	goos := runtime.GOOS
+	var downloadURL string
+	if goos == "linux" {
+		switch arch {
+		case "amd64":
+			downloadURL = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+		case "arm64":
+			downloadURL = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
+		default:
+			return "", fmt.Errorf("不支持的系统架构: %s/%s", goos, arch)
+		}
+	} else if goos == "windows" {
+		downloadURL = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+	} else {
+		return "", fmt.Errorf("不支持的操作系统: %s", goos)
+	}
+
+	log.Printf("[Cloudflared] 未检测到核心隧道程序，正在自动拉取官方发布包: %s", downloadURL)
+	tmpFile := filepath.Join(baseDir, "tmp", "cloudflared.download")
+	if err := downloadFile(downloadURL, tmpFile); err != nil {
+		return "", fmt.Errorf("下载 cloudflared 失败: %w", err)
+	}
+
+	_ = os.Remove(dst)
+	if err := os.Rename(tmpFile, dst); err != nil {
+		if err2 := copyFile(tmpFile, dst); err2 != nil {
+			return "", fmt.Errorf("安装 cloudflared 文件失败: %w", err2)
+		}
+		_ = os.Remove(tmpFile)
+	}
+	_ = os.Chmod(dst, 0o755)
+	log.Printf("[Cloudflared] cloudflared 已就绪: %s", dst)
+	return dst, nil
+}
 
 func (s *Store) createTunnel(req CreateTunnelReq) (*Tunnel, error) {
 	dom := strings.TrimSpace(req.Domain)
@@ -79,7 +130,7 @@ func (s *Store) createTunnel(req CreateTunnelReq) (*Tunnel, error) {
 		Domain:    dom,
 		Token:     tok,
 		Port:      port,
-		PID:       os.Getpid(), // 真正单进程：归属当前主进程
+		PID:       0,
 		Status:    "stopped",
 		LogFile:   filepath.Join(baseDir, "logs", name+".log"),
 		CreatedAt: time.Now(),
@@ -102,85 +153,89 @@ func (s *Store) createTunnel(req CreateTunnelReq) (*Tunnel, error) {
 	return t, nil
 }
 
-// startTunnel 启动进程内隧道协程
+// startTunnel 拉起受管 cloudflared 伪装进程并连接 Cloudflare 边缘
 func (s *Store) startTunnel(t *Tunnel) error {
-	tunnelMu.Lock()
-	if existing, ok := inProcTunnels[t.ID]; ok && existing.active {
-		tunnelMu.Unlock()
-		return nil
+	bin := cloudflaredBinPath()
+	if _, err := os.Stat(bin); err != nil {
+		var downloadErr error
+		bin, downloadErr = ensureCloudflared()
+		if downloadErr != nil {
+			return fmt.Errorf("未找到且无法下载 cloudflared: %w", downloadErr)
+		}
 	}
 
-	_ = os.MkdirAll(filepath.Dir(t.LogFile), 0o755)
-	lf, err := os.OpenFile(t.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	var args []string
+	var env []string
+	if t.Mode == "named" {
+		args = []string{"tunnel", "--no-autoupdate", "run", "--token", t.Token}
+	} else {
+		// 临时隧道把公网流量转发给内置反向代理引擎 (s.IngressPort 默认 8080)
+		args = []string{
+			"tunnel", "--no-autoupdate", "--url",
+			fmt.Sprintf("http://127.0.0.1:%d", s.IngressPort),
+		}
+		env = append(env, "TUNNEL_METRICS=127.0.0.1:0")
+	}
+
+	p, err := startProc(t.Name, bin, args, env, t.LogFile)
 	if err != nil {
-		tunnelMu.Unlock()
-		return fmt.Errorf("创建隧道日志文件失败: %w", err)
+		return fmt.Errorf("启动 cloudflared 失败: %w", err)
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	ipt := &InProcessTunnel{
-		ID:      t.ID,
-		Name:    t.Name,
-		ctx:     ctx,
-		cancel:  cancel,
-		logPath: t.LogFile,
-		logF:    lf,
-		done:    make(chan struct{}),
-		active:  true,
+	if p.cmd != nil && p.cmd.Process != nil {
+		t.PID = p.cmd.Process.Pid
 	}
-	inProcTunnels[t.ID] = ipt
-	tunnelMu.Unlock()
-
-	t.PID = os.Getpid()
 	t.Status = "running"
 	t.Error = ""
 
-	// 写启动日志
-	writeTunnelLog(lf, fmt.Sprintf("In-Process Tunnel [%s] (Mode: %s) started under PID %d", t.Name, t.Mode, os.Getpid()))
+	// 临时隧道: 异步从日志捕获 Cloudflare 官方分配的公网合法域名并回填
+	if t.Mode == "quick" {
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[quick-tunnel %s] 协程异常恢复: %v", t.ID, r)
+				}
+			}()
+			url := waitQuickURL(t.LogFile, 60*time.Second)
+			if url != "" {
+				cleanDomain := strings.TrimPrefix(url, "https://")
+				cleanDomain = strings.TrimPrefix(cleanDomain, "http://")
+				cleanDomain = strings.TrimRight(cleanDomain, "/")
 
-	// 启动进程内隧道监控与数据通道协调协程
-	go func() {
-		defer close(ipt.done)
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("[InProcessTunnel-%s] 捕获异常: %v", t.ID, r)
-				writeTunnelLog(lf, fmt.Sprintf("Tunnel exception recovered: %v", r))
+				s.mu.Lock()
+				t.Domain = cleanDomain
+
+				// 如果该隧道指定了目标端口，且尚未存在代理规则，自动绑定根路径 "/"
+				hasProxy := false
+				for _, p := range s.Proxies {
+					if p.TunnelID == t.ID {
+						hasProxy = true
+						break
+					}
+				}
+				if !hasProxy && t.Port > 0 {
+					pr := &Proxy{
+						ID:           RandID(),
+						TunnelID:     t.ID,
+						Domain:       cleanDomain,
+						Path:         "/",
+						UpstreamPort: t.Port,
+						CreatedAt:    time.Now(),
+					}
+					s.Proxies = append(s.Proxies, pr)
+				}
+				_ = s.saveLocked()
+				s.mu.Unlock()
+
+				// 域名就绪后重载内置反代路由
+				_ = s.reloadCaddy()
+				log.Printf("[Tunnel-%s] 临时安全隧道就绪: https://%s -> 本地反代", t.Name, cleanDomain)
+			} else {
+				log.Printf("[Tunnel-%s] 等待 Cloudflare 官方分配域名超时，请检查网络或查看日志 %s", t.Name, t.LogFile)
 			}
-			ipt.active = false
-			_ = lf.Close()
 		}()
-
-		// 如果是临时隧道且尚未分配域名，生成并回填
-		if t.Mode == "quick" && t.Domain == "" {
-			randomSub := make([]byte, 4)
-			_, _ = rand.Read(randomSub)
-			quickDomain := fmt.Sprintf("tunnel-%s.trycloudflare.com", hex.EncodeToString(randomSub))
-			writeTunnelLog(lf, fmt.Sprintf("Registered tunnel connection at https://%s", quickDomain))
-
-			s.mu.Lock()
-			t.Domain = quickDomain
-			_ = s.saveLocked()
-			s.mu.Unlock()
-
-			_ = s.reloadCaddy()
-		} else if t.Mode == "named" {
-			writeTunnelLog(lf, fmt.Sprintf("Connected to Cloudflare Edge with Token for %s", t.Domain))
-		}
-
-		// 常驻监听 context，直到停止
-		<-ipt.ctx.Done()
-		writeTunnelLog(lf, fmt.Sprintf("Tunnel [%s] gracefully stopped.", t.Name))
-	}()
+	}
 
 	return nil
-}
-
-func writeTunnelLog(f *os.File, msg string) {
-	if f == nil {
-		return
-	}
-	line := fmt.Sprintf("%s - %s\n", time.Now().Format("2006-01-02 15:04:05"), msg)
-	_, _ = f.WriteString(line)
 }
 
 func (s *Store) stopTunnel(id string) error {
@@ -191,12 +246,10 @@ func (s *Store) stopTunnel(id string) error {
 		return fmt.Errorf("隧道不存在")
 	}
 
-	tunnelMu.Lock()
-	if ipt, ok := inProcTunnels[id]; ok {
-		ipt.cancel()
-		delete(inProcTunnels, id)
+	if p := getProc(t.Name); p != nil {
+		p.stop()
+		dropProc(t.Name)
 	}
-	tunnelMu.Unlock()
 
 	s.mu.Lock()
 	t.Status = "stopped"
@@ -231,19 +284,20 @@ func (s *Store) deleteTunnel(id string) error {
 	return nil
 }
 
-// syncStatus 根据进程内协程状态刷新
+// syncStatus 根据系统实际进程存活性同步状态
 func (s *Store) syncStatus() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	tunnelMu.RLock()
-	defer tunnelMu.RUnlock()
-
 	for _, t := range s.Tunnels {
-		ipt, exists := inProcTunnels[t.ID]
-		if exists && ipt.active {
+		alive := false
+		if p := getProc(t.Name); p != nil && p.alive() {
+			alive = true
+		} else if t.PID > 0 && pidAlive(t.PID) {
+			alive = true
+		}
+		if alive {
 			t.Status = "running"
-			t.PID = os.Getpid()
 		} else if t.Status == "running" {
 			t.Status = "stopped"
 			t.PID = 0

@@ -276,10 +276,6 @@ func caddyBinPath() string {
 	return "embedded"
 }
 
-func cloudflaredBinPath() string {
-	return "embedded"
-}
-
 func (s *Store) startCaddy() error {
 	globalProxyEngine.UpdateRoutes(s.Proxies)
 	return globalProxyEngine.EnsureRunning(s.IngressPort)

@@ -96,6 +96,16 @@ else
     fi
 fi
 
+# 2.1 确保 cloudflared 核心存在
+if ! command -v cloudflared >/dev/null 2>&1 && [ ! -f "${INSTALL_DIR}/bin/cloudflared" ]; then
+    echo -e "${YELLOW}>>> 预载 Cloudflare 隧道核心引擎 (${BIN_ARCH})...${PLAIN}"
+    CFD_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-${BIN_ARCH}"
+    if curl -fsSL "$CFD_URL" -o "${INSTALL_DIR}/bin/cloudflared"; then
+        chmod +x "${INSTALL_DIR}/bin/cloudflared"
+        echo -e "${GREEN}>>> 隧道核心引擎就绪!${PLAIN}"
+    fi
+fi
+
 # 3. 创建 Systemd 服务守护 (安全仅监听 127.0.0.1)
 echo -e "${YELLOW}>>> 配置 systemd 守护进程 (本地回环 127.0.0.1:8971)...${PLAIN}"
 cat > "$SERVICE_FILE" <<EOF
@@ -122,12 +132,12 @@ systemctl enable cunnel
 systemctl restart cunnel
 
 # 4. 等待进程自举申请临时隧道
-echo -e "${YELLOW}>>> 正在通过内置引擎自动申请 Cloudflare 临时安全隧道...${PLAIN}"
+echo -e "${YELLOW}>>> 正在通过内置引擎自动申请 Cloudflare 临时安全隧道 (通常耗时 5~15 秒)...${PLAIN}"
 PANEL_TUNNEL_URL=""
-for i in {1..12}; do
+for i in {1..30}; do
     sleep 1
     if [ -f "${INSTALL_DIR}/data/state.json" ]; then
-        MATCH=$(grep -oE 'tunnel-[a-f0-9]+\.trycloudflare\.com' "${INSTALL_DIR}/data/state.json" 2>/dev/null | head -n 1 || true)
+        MATCH=$(grep -oE '[a-z0-9][a-z0-9-]*\.trycloudflare\.com' "${INSTALL_DIR}/data/state.json" 2>/dev/null | head -n 1 || true)
         if [ -n "$MATCH" ]; then
             PANEL_TUNNEL_URL="https://${MATCH}"
             break
