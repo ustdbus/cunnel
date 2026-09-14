@@ -22,8 +22,6 @@ import (
 // 直接在当前 Go 进程内实现多域名 (Virtual Host) 与多路径前缀反向代理路由，
 // 支持 WebSocket、HTTP/2 及内存原子零停机热重载。
 
-const caddyHealthPort = 2080
-
 type CaddyInfo struct {
 	Installed bool   `json:"installed"`
 	Version   string `json:"version"`
@@ -54,6 +52,12 @@ var globalProxyEngine = &InProcessProxyEngine{
 }
 
 func (e *InProcessProxyEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/health" {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+		return
+	}
+
 	host := r.Host
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
@@ -160,14 +164,14 @@ func (e *InProcessProxyEngine) UpdateRoutes(proxies []*Proxy) {
 	e.mu.Unlock()
 }
 
-// EnsureRunning 确保反代服务在后台监听
-func (e *InProcessProxyEngine) EnsureRunning(port int) error {
-	if port <= 0 {
-		port = 80
+// EnsureRunning 确保反代服务在后台监听，并支持端口冲突自动递增避让
+func (e *InProcessProxyEngine) EnsureRunning(preferredPort int) (int, error) {
+	if preferredPort <= 0 {
+		preferredPort = 2080
 	}
 
-	if atomic.LoadInt32(&e.running) == 1 && e.ingressPort == port {
-		return nil
+	if atomic.LoadInt32(&e.running) == 1 && e.ingressPort == preferredPort {
+		return preferredPort, nil
 	}
 
 	e.mu.Lock()
@@ -178,22 +182,38 @@ func (e *InProcessProxyEngine) EnsureRunning(port int) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		_ = e.server.Shutdown(ctx)
 		cancel()
+		e.server = nil
 	}
 
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	var ln net.Listener
+	var actualPort int
+	var err error
+
+	for p := preferredPort; p < preferredPort+50; p++ {
+		addr := fmt.Sprintf("127.0.0.1:%d", p)
+		ln, err = net.Listen("tcp", addr)
+		if err == nil {
+			actualPort = p
+			if p != preferredPort {
+				log.Printf("[PortGuard] 反代入口端口 %d 被占用，已自动避让切换至空闲端口 %d", preferredPort, p)
+			}
+			break
+		}
+	}
+
+	if ln == nil {
+		return 0, fmt.Errorf("内置反代引擎在 %d~%d 范围内均无法找到空闲端口: %w", preferredPort, preferredPort+49, err)
+	}
+
+	actualAddr := fmt.Sprintf("127.0.0.1:%d", actualPort)
 	srv := &http.Server{
-		Addr:              addr,
+		Addr:              actualAddr,
 		Handler:           e,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("内置反代引擎监听 %s 失败: %w", addr, err)
-	}
-
 	e.server = srv
-	e.ingressPort = port
+	e.ingressPort = actualPort
 	atomic.StoreInt32(&e.running, 1)
 
 	go func() {
@@ -202,34 +222,14 @@ func (e *InProcessProxyEngine) EnsureRunning(port int) error {
 				log.Printf("[ProxyEngine] 异常恢复: %v", r)
 			}
 		}()
-		log.Printf("内置反代引擎已启动 (In-Process): http://%s", addr)
+		log.Printf("内置反代引擎已启动 (In-Process): http://%s", actualAddr)
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Printf("[ProxyEngine] 监听异常退出: %v", err)
 			atomic.StoreInt32(&e.running, 0)
 		}
 	}()
 
-	// 启动独立健康检查端点 :2080/health
-	if e.healthSrv == nil {
-		healthMux := http.NewServeMux()
-		healthMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte("ok"))
-		})
-		healthSrv := &http.Server{
-			Addr:              fmt.Sprintf("127.0.0.1:%d", caddyHealthPort),
-			Handler:           healthMux,
-			ReadHeaderTimeout: 5 * time.Second,
-		}
-		if hln, err := net.Listen("tcp", healthSrv.Addr); err == nil {
-			e.healthSrv = healthSrv
-			go func() {
-				_ = healthSrv.Serve(hln)
-			}()
-		}
-	}
-
-	return nil
+	return actualPort, nil
 }
 
 func (e *InProcessProxyEngine) Stop() {
@@ -254,9 +254,9 @@ func detectCaddy() CaddyInfo {
 	isRunning := atomic.LoadInt32(&globalProxyEngine.running) == 1
 	return CaddyInfo{
 		Installed: true,
-		Running:   isRunning,
 		Version:   "Embedded In-Process Engine (Caddy-Compatible)",
 		Path:      "in-process",
+		Running:   isRunning,
 		PID:       os.Getpid(),
 		Latest:    "v2.9.1",
 	}
@@ -267,7 +267,29 @@ func (s *Store) reloadCaddy() error {
 	for _, p := range s.Proxies {
 		log.Printf("[Proxy] 分流规则生效: https://%s%s -> 127.0.0.1:%d", p.Domain, p.Path, p.UpstreamPort)
 	}
-	return globalProxyEngine.EnsureRunning(s.IngressPort)
+	realPort, err := globalProxyEngine.EnsureRunning(s.IngressPort)
+	if err == nil && realPort != s.IngressPort {
+		s.mu.Lock()
+		s.IngressPort = realPort
+		_ = s.saveLocked()
+		s.mu.Unlock()
+	}
+	return err
+}
+
+func (s *Store) setIngressPort(newPort int) (int, error) {
+	realPort, err := globalProxyEngine.EnsureRunning(newPort)
+	if err != nil {
+		return 0, err
+	}
+	s.mu.Lock()
+	s.IngressPort = realPort
+	_ = s.saveLocked()
+	s.mu.Unlock()
+
+	// 异步热重连活跃临时隧道以对接新端口
+	go s.resumeActiveTunnels()
+	return realPort, nil
 }
 
 func ensureCaddy(force bool) (string, error) {

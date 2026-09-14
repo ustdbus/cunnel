@@ -50,13 +50,16 @@ func NewStore(path string) (*Store, error) {
 		Path:        path,
 		Tunnels:     []*Tunnel{},
 		Proxies:     []*Proxy{},
-		IngressPort: 80,
+		IngressPort: 2080,
 		procs:       map[string]*proc{},
 	}
 	if b, err := os.ReadFile(path); err == nil && len(b) > 0 {
 		if err := json.Unmarshal(b, s); err != nil {
 			return nil, fmt.Errorf("config %s 解析失败: %w", path, err)
 		}
+	}
+	if s.IngressPort <= 0 {
+		s.IngressPort = 2080
 	}
 	if s.procs == nil {
 		s.procs = map[string]*proc{}

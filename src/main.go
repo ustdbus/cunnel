@@ -235,8 +235,42 @@ func registerRoutes(mux *http.ServeMux) {
 			"proxy_count":      len(store.Proxies),
 			"panel_dir":        baseDir,
 			"panel_port":       actualPort,
+			"ingress_port":     store.IngressPort,
 			"panel_tunnel_url": panelTunnelURL,
 		}, nil
+	}))
+
+	// 反代入口端口查询与动态配置
+	mux.HandleFunc("/api/ingress", wrap(func(w http.ResponseWriter, r *http.Request) (any, error) {
+		switch r.Method {
+		case http.MethodGet:
+			return map[string]any{
+				"ingress_port": store.IngressPort,
+			}, nil
+		case http.MethodPost:
+			var req struct {
+				Port int `json:"port"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				return nil, fmt.Errorf("请求格式错误: %w", err)
+			}
+			if req.Port < 1 || req.Port > 65535 {
+				return nil, fmt.Errorf("端口号超出合法范围 (1~65535)")
+			}
+			if req.Port == actualPort {
+				return nil, fmt.Errorf("反代入口端口不能与面板主端口 (%d) 相同", actualPort)
+			}
+			realPort, err := store.setIngressPort(req.Port)
+			if err != nil {
+				return nil, fmt.Errorf("更新反代入口端口失败: %w", err)
+			}
+			return map[string]any{
+				"ingress_port": realPort,
+				"message":      fmt.Sprintf("反代入口端口已更新至 %d 并已完成引擎热重载", realPort),
+			}, nil
+		default:
+			return nil, fmt.Errorf("不支持的方法")
+		}
 	}))
 
 	// 功能一:添加隧道

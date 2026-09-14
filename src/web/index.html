@@ -540,14 +540,36 @@ async function loadAll() {
         <div class="stat-sub">内存路由表</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">内置 Caddy 引擎</div>
-        <div class="stat-val" style="font-size:18px;color:var(--pri)">运行中 (PID ${d.caddy.pid})</div>
-        <div class="stat-sub">In-Process 原生运行</div>
+        <div class="stat-label" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>反代入口 (Ingress)</span>
+          <a href="javascript:void(0)" onclick="editIngressPort(${d.ingress_port || 2080})" style="font-size:12px;color:var(--pri);text-decoration:none;font-weight:600;">⚙ 修改</a>
+        </div>
+        <div class="stat-val" style="font-size:18px;color:var(--pri)">127.0.0.1:${d.ingress_port || 2080}</div>
+        <div class="stat-sub">多域名分流入口 (冲突智能避让)</div>
       </div>
     `;
     const portStr = d.panel_port ? ` · 本地监听端口: :${d.panel_port}` : "";
     $("#subtitle").textContent = "运行目录: " + d.panel_dir + " · 单进程架构" + portStr;
   } catch (e) { toast("加载概览失败: " + e.message, false); }
+}
+
+async function editIngressPort(currentPort) {
+  const pStr = prompt(`请输入新的反代引擎入口端口 (1~65535):\n建议使用高位端口 (如 2080、8080 等)。若冲突系统将自动避让。`, currentPort);
+  if (!pStr) return;
+  const p = parseInt(pStr.trim(), 10);
+  if (!p || p < 1 || p > 65535) {
+    return toast("请输入合法的端口号 (1~65535)", false);
+  }
+  try {
+    const res = await api("/api/ingress", {
+      method: "POST",
+      body: { port: p }
+    });
+    toast(res.message || `反代入口端口已成功切换至 ${res.ingress_port}`);
+    loadAll();
+  } catch (e) {
+    toast("切换端口失败: " + e.message, false);
+  }
 }
 
 // ── 隧道逻辑 ──
