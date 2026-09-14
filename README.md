@@ -17,10 +17,20 @@
 
 ### 选项 A：Linux VPS 独立面板一键安装（推荐）
 
-直接在服务器终端以 root 执行以下命令，自动检测系统架构、配置 systemd 服务守护并启动：
+直接在服务器终端以 root 执行以下命令，自动检测系统架构、配置 systemd 服务守护并启动（默认监听 `0.0.0.0:8971`）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ustdbus/cunnel/main/install.sh | bash
+```
+
+### 🗑️ 一键卸载与清理
+
+如需彻底停止并移除面板、清理 systemd 守护服务及安装文件，直接执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ustdbus/cunnel/main/uninstall.sh | bash
+# 或通过安装脚本传入卸载参数：
+curl -fsSL https://raw.githubusercontent.com/ustdbus/cunnel/main/install.sh | bash -s -- uninstall
 ```
 
 ### 选项 B：作为 QwenPaw 插件安装

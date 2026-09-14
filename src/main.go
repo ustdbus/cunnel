@@ -38,7 +38,7 @@ func main() {
 
 	addr := os.Getenv("CFD_PANEL_ADDR")
 	if addr == "" {
-		addr = "127.0.0.1:8971"
+		addr = "0.0.0.0:8971"
 	}
 
 	mux := http.NewServeMux()
