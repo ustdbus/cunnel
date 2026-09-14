@@ -150,6 +150,7 @@ func printConnectInfo() {
 				if status != "running" {
 					statusColor = colorRed
 				}
+				fmt.Printf("  * %s%s%s [%s模式] -> %s%s%s\n", colorBold, name, colorReset, mode, statusColor, status, colorReset)
 				if domain != "" {
 					fmt.Printf("    域名: %shttps://%s%s\n", colorCyan, domain, colorReset)
 				} else {
