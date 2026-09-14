@@ -137,6 +137,7 @@ User=root
 WorkingDirectory=${INSTALL_DIR}
 Environment="CUNNEL_DIR=${INSTALL_DIR}"
 Environment="CFD_PANEL_DIR=${INSTALL_DIR}"
+Environment="CUNNEL_ADDR=127.0.0.1:8971"
 Environment="CFD_PANEL_ADDR=127.0.0.1:8971"
 ExecStart=${INSTALL_DIR}/bin/cunnel
 Restart=always
@@ -164,8 +165,9 @@ for i in {1..30}; do
     fi
 done
 
-# 尝试从监听中获取实际绑定的面板端口 (排除内置反代 80 和 2080)
-REAL_PORT=$(ss -tlnp 2>/dev/null | grep -E 'users:\(\("(cunnel|cfd-panel)"' | grep -oE '127\.0\.0\.1:[0-9]+' | cut -d: -f2 | grep -vE '^(80|2080)$' | head -n 1 || echo "8971")
+# 尝试从监听中获取实际绑定的面板守护端口 (排除当前配置的反代入口端口)
+INGRESS_P=$(grep -oE '"ingress_port":\s*[0-9]+' "${INSTALL_DIR}/data/state.json" 2>/dev/null | grep -oE '[0-9]+' || echo "2080")
+REAL_PORT=$(ss -tlnp 2>/dev/null | grep -E 'users:\(\("(cunnel|cfd-panel)"' | grep -oE '127\.0\.0\.1:[0-9]+' | cut -d: -f2 | grep -vE "^(${INGRESS_P}|80|2080)$" | head -n 1 || echo "8971")
 
 echo -e "${GREEN}====================================================${PLAIN}"
 echo -e "${GREEN}  🎉 Cunnel 安装成功并已在后台安全启动！${PLAIN}"

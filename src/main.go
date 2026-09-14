@@ -54,7 +54,11 @@ func main() {
 
 	rawHost := "127.0.0.1"
 	prefPort := 8971
-	if envAddr := os.Getenv("CFD_PANEL_ADDR"); envAddr != "" {
+	envAddr := os.Getenv("CUNNEL_ADDR")
+	if envAddr == "" {
+		envAddr = os.Getenv("CFD_PANEL_ADDR")
+	}
+	if envAddr != "" {
 		if h, pStr, err := net.SplitHostPort(envAddr); err == nil {
 			rawHost = h
 			if p, perr := strconv.Atoi(pStr); perr == nil && p > 0 {
@@ -63,8 +67,15 @@ func main() {
 		}
 	}
 
-	// 智能避让：如果端口被占用，自动递增寻找可用端口
-	ln, listenAddr, realPort, err := listenWithFallback(rawHost, prefPort)
+	// 支持通过环境变量预置反代入口端口
+	if envIngress := os.Getenv("CUNNEL_INGRESS_PORT"); envIngress != "" {
+		if ip, ierr := strconv.Atoi(envIngress); ierr == nil && ip > 0 && ip <= 65535 {
+			store.IngressPort = ip
+		}
+	}
+
+	// 智能避让：如果端口被占用，自动递增寻找可用端口，同时避开反代入口端口
+	ln, listenAddr, realPort, err := listenWithFallback(rawHost, prefPort, store.IngressPort)
 	if err != nil {
 		log.Fatalf("启动监听失败 (8971~8999 端口均不可用): %v", err)
 	}
@@ -122,14 +133,17 @@ func main() {
 	}
 }
 
-// listenWithFallback 尝试在首选端口监听，若被占用则自动向后顺延
-func listenWithFallback(host string, startPort int) (net.Listener, string, int, error) {
+// listenWithFallback 尝试在首选端口监听，若被占用则自动向后顺延，同时避开指定保留端口
+func listenWithFallback(host string, startPort int, avoidPort int) (net.Listener, string, int, error) {
 	for port := startPort; port < startPort+50; port++ {
+		if port == avoidPort {
+			continue // 严格避开反代入口端口
+		}
 		addr := fmt.Sprintf("%s:%d", host, port)
 		ln, err := net.Listen("tcp", addr)
 		if err == nil {
 			if port != startPort {
-				log.Printf("[PortGuard] 端口 %d 被占用，已自动避让切换至空闲端口 %d", startPort, port)
+				log.Printf("[PortGuard] 守护端口 %d 被占用，已自动避让切换至空闲端口 %d", startPort, port)
 			}
 			return ln, addr, port, nil
 		}

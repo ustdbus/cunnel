@@ -93,10 +93,13 @@ fi
 chmod +x "${INSTALL_DIR}/bin/cunnel-engine" 2>/dev/null || true
 ln -sfn "${INSTALL_DIR}/bin/cunnel-engine" "${INSTALL_DIR}/bin/cfd-panel-worker" 2>/dev/null || true
 
-# 更新 systemd ExecStart 为 cunnel
+# 更新 systemd ExecStart 为 cunnel 并补充 CUNNEL_ADDR
 if [ -f "$SERVICE_FILE" ]; then
     sed -i "s|ExecStart=.*|ExecStart=${INSTALL_DIR}/bin/cunnel|" "$SERVICE_FILE"
     sed -i "s|WorkingDirectory=.*|WorkingDirectory=${INSTALL_DIR}|" "$SERVICE_FILE"
+    if ! grep -q 'CUNNEL_ADDR=' "$SERVICE_FILE"; then
+        sed -i '/CFD_PANEL_ADDR=/i Environment="CUNNEL_ADDR=127.0.0.1:8971"' "$SERVICE_FILE"
+    fi
     systemctl daemon-reload
 fi
 
@@ -120,7 +123,8 @@ for i in {1..20}; do
     fi
 done
 
-REAL_PORT=$(ss -tlnp 2>/dev/null | grep -E 'users:\(\("(cunnel|cfd-panel)"' | grep -oE '127\.0\.0\.1:[0-9]+' | cut -d: -f2 | grep -vE '^(80|2080)$' | head -n 1 || echo "8971")
+INGRESS_P=$(grep -oE '"ingress_port":\s*[0-9]+' "${INSTALL_DIR}/data/state.json" 2>/dev/null | grep -oE '[0-9]+' || echo "2080")
+REAL_PORT=$(ss -tlnp 2>/dev/null | grep -E 'users:\(\("(cunnel|cfd-panel)"' | grep -oE '127\.0\.0\.1:[0-9]+' | cut -d: -f2 | grep -vE "^(${INGRESS_P}|80|2080)$" | head -n 1 || echo "8971")
 
 echo -e "${GREEN}====================================================${PLAIN}"
 echo -e "${GREEN}  🎉 Cunnel 已成功更新至最新版并平滑重启！${PLAIN}"

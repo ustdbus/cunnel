@@ -186,14 +186,17 @@ func (e *InProcessProxyEngine) EnsureRunning(preferredPort int) (int, error) {
 	}
 
 	var ln net.Listener
-	var actualPort int
+	var chosenPort int
 	var err error
 
 	for p := preferredPort; p < preferredPort+50; p++ {
+		if p == actualPort {
+			continue // 严格避开面板自身守护端口
+		}
 		addr := fmt.Sprintf("127.0.0.1:%d", p)
 		ln, err = net.Listen("tcp", addr)
 		if err == nil {
-			actualPort = p
+			chosenPort = p
 			if p != preferredPort {
 				log.Printf("[PortGuard] 反代入口端口 %d 被占用，已自动避让切换至空闲端口 %d", preferredPort, p)
 			}
@@ -205,7 +208,7 @@ func (e *InProcessProxyEngine) EnsureRunning(preferredPort int) (int, error) {
 		return 0, fmt.Errorf("内置反代引擎在 %d~%d 范围内均无法找到空闲端口: %w", preferredPort, preferredPort+49, err)
 	}
 
-	actualAddr := fmt.Sprintf("127.0.0.1:%d", actualPort)
+	actualAddr := fmt.Sprintf("127.0.0.1:%d", chosenPort)
 	srv := &http.Server{
 		Addr:              actualAddr,
 		Handler:           e,
@@ -213,7 +216,7 @@ func (e *InProcessProxyEngine) EnsureRunning(preferredPort int) (int, error) {
 	}
 
 	e.server = srv
-	e.ingressPort = actualPort
+	e.ingressPort = chosenPort
 	atomic.StoreInt32(&e.running, 1)
 
 	go func() {
