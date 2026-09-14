@@ -232,7 +232,7 @@ func (e *InProcessProxyEngine) EnsureRunning(preferredPort int) (int, error) {
 		}
 	}()
 
-	return actualPort, nil
+	return chosenPort, nil
 }
 
 func (e *InProcessProxyEngine) Stop() {

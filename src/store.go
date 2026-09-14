@@ -58,7 +58,7 @@ func NewStore(path string) (*Store, error) {
 			return nil, fmt.Errorf("config %s 解析失败: %w", path, err)
 		}
 	}
-	if s.IngressPort <= 0 {
+	if s.IngressPort <= 0 || s.IngressPort == 8971 || s.IngressPort == 80 {
 		s.IngressPort = 2080
 	}
 	if s.procs == nil {
