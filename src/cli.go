@@ -150,9 +150,10 @@ func printConnectInfo() {
 				if status != "running" {
 					statusColor = colorRed
 				}
-				fmt.Printf("  * %s%s%s [%s模式] -> %s%s%s\n", colorBold, name, colorReset, mode, statusColor, status, colorReset)
 				if domain != "" {
 					fmt.Printf("    域名: %shttps://%s%s\n", colorCyan, domain, colorReset)
+				} else {
+					fmt.Printf("    域名: %s正在申请分配最新安全公网域名 (3~8秒)...%s\n", colorYellow, colorReset)
 				}
 			}
 		}
@@ -284,24 +285,39 @@ func findStatePath() string {
 }
 
 func cliRestart() {
-	fmt.Printf("%s[Cunnel]%s 正在重启 Cunnel 守护进程...\n", colorCyan, colorReset)
+	fmt.Printf("%s[Cunnel]%s 正在平滑重启服务并连接 Cloudflare 边缘节点...\n", colorCyan, colorReset)
 	cmd := exec.Command("systemctl", "restart", "cunnel")
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("%s重启失败: %v (若非 systemd 环境请直接运行 cunnel server)%s\n", colorRed, err, colorReset)
 		return
 	}
-	time.Sleep(2 * time.Second)
-	printConnectInfo()
+	waitForDomainAndPrint()
 }
 
 func cliStart() {
-	fmt.Printf("%s[Cunnel]%s 正在启动 Cunnel 服务...\n", colorCyan, colorReset)
+	fmt.Printf("%s[Cunnel]%s 正在启动服务并连接 Cloudflare 边缘节点...\n", colorCyan, colorReset)
 	cmd := exec.Command("systemctl", "start", "cunnel")
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("%s启动失败: %v%s\n", colorRed, err, colorReset)
 		return
 	}
-	time.Sleep(2 * time.Second)
+	waitForDomainAndPrint()
+}
+
+func waitForDomainAndPrint() {
+	fmt.Printf("%s[Cunnel]%s 等待 Cloudflare 官方边缘分配最新安全公网地址...\n", colorGray, colorReset)
+	for i := 0; i < 12; i++ {
+		time.Sleep(1 * time.Second)
+		port := findActivePort()
+		overviewData, _, _, ok := fetchLiveStatus(port)
+		if ok && overviewData != nil {
+			if ov, ok := overviewData["data"].(map[string]any); ok {
+				if u, ok := ov["panel_tunnel_url"].(string); ok && u != "" {
+					break
+				}
+			}
+		}
+	}
 	printConnectInfo()
 }
 

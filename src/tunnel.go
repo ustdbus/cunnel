@@ -208,6 +208,9 @@ func (s *Store) startTunnel(t *Tunnel) error {
 	}
 	t.Status = "running"
 	t.Error = ""
+	if t.Mode == "quick" {
+		t.Domain = "" // 临时隧道重新启动时，旧域名必然失效，清空旧值避免输出已失效的域名
+	}
 
 	// 临时隧道: 异步从日志捕获 Cloudflare 官方分配的公网合法域名并回填
 	if t.Mode == "quick" {
