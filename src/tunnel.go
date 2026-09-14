@@ -416,6 +416,27 @@ func (s *Store) createProxy(req CreateProxyReq) (*Proxy, error) {
 
 func (s *Store) deleteProxy(id string) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var target *Proxy
+	cunnelProxyCount := 0
+	for _, p := range s.Proxies {
+		if p.ID == id {
+			target = p
+		}
+		if p.UpstreamPort == actualPort {
+			cunnelProxyCount++
+		}
+	}
+	if target == nil {
+		return fmt.Errorf("代理规则不存在")
+	}
+
+	// 安全锁定保护：若该规则指向 Cunnel 自身面板端口，且是唯一的面板代理规则，则锁定禁止移除
+	if target.UpstreamPort == actualPort && cunnelProxyCount <= 1 {
+		return fmt.Errorf("操作被阻止：该规则是当前 Cunnel 管理面板唯一的外部访问入口，已受锁定保护；请在配置其他指向面板的隧道后再移除")
+	}
+
 	keep := s.Proxies[:0]
 	for _, p := range s.Proxies {
 		if p.ID != id {
@@ -424,8 +445,9 @@ func (s *Store) deleteProxy(id string) error {
 	}
 	s.Proxies = keep
 	_ = s.saveLocked()
-	s.mu.Unlock()
 
-	_ = s.reloadCaddy()
+	go func() {
+		_ = s.reloadCaddy()
+	}()
 	return nil
 }

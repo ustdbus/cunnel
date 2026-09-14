@@ -652,10 +652,12 @@ async function loadProxies() {
       </tr></thead><tbody>${rows.map(p => `<tr>
         <td><code>${esc(p.domain)}</code></td>
         <td><code>${esc(p.path)}</code></td>
-        <td><span style="font-weight:600;color:var(--pri)">127.0.0.1:${p.upstream_port}</span></td>
+        <td><span style="font-weight:600;color:var(--pri)">127.0.0.1:${p.upstream_port}</span>${p.locked ? ` <span class="pill" style="font-size:11px;background:#eff6ff;color:var(--pri)">核心面板</span>` : ''}</td>
         <td><code>${esc(p.tunnel_name)}</code></td>
         <td>${p.tunnel_status === "running" ? '<span class="pill run">活跃监听</span>' : '<span class="pill stop">隧道已停</span>'}</td>
-        <td><button class="sm danger" onclick="delProxy('${p.id}')">移除</button></td>
+        <td>${p.locked 
+          ? `<span class="pill" style="background:#f1f5f9;color:#64748b;border:1px solid #cbd5e1;cursor:help;font-size:12px;padding:3px 10px;" title="核心保护：当前为唯一的面板访问入口。当有其他隧道也分流到面板时方可解锁移除。">🔒 保护锁定</span>` 
+          : `<button class="sm danger" onclick="delProxy('${p.id}')">移除</button>`}</td>
       </tr>`).join("")}</tbody></table></div>` : `<div class="empty-box"><div class="empty-icon">🔀</div><div>暂无代理规则，请切换到“添加代理”进行配置</div></div>`;
   } catch (e) { toast("加载代理失败: " + e.message, false); }
 }
@@ -666,7 +668,7 @@ async function delProxy(id) {
     await api(`/api/proxies/${id}`, { method: "DELETE" });
     toast("规则已移除并已从内存注销");
     loadProxies(); loadAll(); loadCaddyfile();
-  } catch (e) { toast("移除失败: " + e.message, false); }
+  } catch (e) { toast(e.message, false); }
 }
 
 async function loadCaddyfile() {

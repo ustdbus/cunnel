@@ -346,7 +346,16 @@ func registerRoutes(mux *http.ServeMux) {
 			*Proxy
 			TunnelName   string `json:"tunnel_name"`
 			TunnelStatus string `json:"tunnel_status"`
+			Locked       bool   `json:"locked"`
 		}
+
+		cunnelProxyCount := 0
+		for _, p := range store.Proxies {
+			if p.UpstreamPort == actualPort {
+				cunnelProxyCount++
+			}
+		}
+
 		rows := make([]row, 0, len(store.Proxies))
 		for _, p := range store.Proxies {
 			t := store.FindTunnel(p.TunnelID)
@@ -354,7 +363,13 @@ func registerRoutes(mux *http.ServeMux) {
 			if t != nil {
 				tn, ts = t.Name, t.Status
 			}
-			rows = append(rows, row{Proxy: p, TunnelName: tn, TunnelStatus: ts})
+			isLocked := (p.UpstreamPort == actualPort && cunnelProxyCount <= 1)
+			rows = append(rows, row{
+				Proxy:        p,
+				TunnelName:   tn,
+				TunnelStatus: ts,
+				Locked:       isLocked,
+			})
 		}
 		cp := detectCaddy()
 		var upstreams []map[string]any
