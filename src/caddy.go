@@ -302,8 +302,7 @@ func caddyBinPath() string {
 }
 
 func (s *Store) startCaddy() error {
-	globalProxyEngine.UpdateRoutes(s.Proxies)
-	return globalProxyEngine.EnsureRunning(s.IngressPort)
+	return s.reloadCaddy()
 }
 
 func (s *Store) buildCaddyfile() string {
