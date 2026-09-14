@@ -202,14 +202,15 @@ func (s *Store) startTunnel(t *Tunnel) error {
 				cleanDomain = strings.TrimRight(cleanDomain, "/")
 
 				s.mu.Lock()
+				oldDomain := t.Domain
 				t.Domain = cleanDomain
 
-				// 如果该隧道指定了目标端口，且尚未存在代理规则，自动绑定根路径 "/"
+				// 检查并自动更新或创建反代规则
 				hasProxy := false
 				for _, p := range s.Proxies {
-					if p.TunnelID == t.ID {
+					if p.TunnelID == t.ID || (oldDomain != "" && strings.EqualFold(p.Domain, oldDomain)) {
+						p.Domain = cleanDomain
 						hasProxy = true
-						break
 					}
 				}
 				if !hasProxy && t.Port > 0 {
@@ -304,6 +305,25 @@ func (s *Store) syncStatus() {
 		}
 	}
 	_ = s.saveLocked()
+}
+
+// resumeActiveTunnels 重启时自动拉起上次处于运行状态的隧道
+func (s *Store) resumeActiveTunnels() {
+	s.mu.Lock()
+	var toResume []*Tunnel
+	for _, t := range s.Tunnels {
+		if t.Status == "running" || (len(s.Tunnels) == 1 && t.Mode == "quick") {
+			toResume = append(toResume, t)
+		}
+	}
+	s.mu.Unlock()
+
+	for _, t := range toResume {
+		log.Printf("[AutoResume] 正在恢复隧道服务: %s (Mode: %s)...", t.Name, t.Mode)
+		if err := s.startTunnel(t); err != nil {
+			log.Printf("[AutoResume] 恢复隧道 %s 失败: %v", t.Name, err)
+		}
+	}
 }
 
 // ---------- 代理规则 ----------

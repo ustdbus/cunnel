@@ -73,9 +73,10 @@ func main() {
 	// 启动内置反代引擎
 	_ = store.reloadCaddy()
 
-	// 首次启动自动引导：若没有任何隧道，自动申请一条临时隧道并将面板自身实际端口代理出去
+	// 服务启动自恢复与首次自举引导
 	go func() {
 		time.Sleep(1 * time.Second)
+		store.resumeActiveTunnels()
 		autoBootstrapPanelProxy(actualPort)
 	}()
 
