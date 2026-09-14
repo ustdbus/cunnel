@@ -288,10 +288,22 @@ func (s *Store) setIngressPort(newPort int) (int, error) {
 	s.mu.Lock()
 	s.IngressPort = realPort
 	_ = s.saveLocked()
+	var toRestart []*Tunnel
+	for _, t := range s.Tunnels {
+		if t.Status == "running" && t.Mode == "quick" {
+			toRestart = append(toRestart, t)
+		}
+	}
 	s.mu.Unlock()
 
 	// 异步热重连活跃临时隧道以对接新端口
-	go s.resumeActiveTunnels()
+	go func() {
+		for _, t := range toRestart {
+			_ = s.stopTunnel(t.ID)
+			time.Sleep(500 * time.Millisecond)
+			_ = s.startTunnel(t)
+		}
+	}()
 	return realPort, nil
 }
 

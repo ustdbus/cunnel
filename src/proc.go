@@ -67,8 +67,15 @@ func (p *proc) cleanLog(domain string) {
 	}
 }
 
-// startProc 启动一个受管子进程。name 同时作为 argv[0],让 ps 里显示为随机名。
+// startProc 启动一个受管子进程。name 同时作为 argv[0],让 ps 里显示为统一名。
 func startProc(name string, bin string, args []string, env []string, logPath string) (*proc, error) {
+	procMu.Lock()
+	if oldP, exists := procs[name]; exists && oldP != nil {
+		oldP.stop()
+		delete(procs, name)
+	}
+	procMu.Unlock()
+
 	if err := os.MkdirAll(dirOf(logPath), 0o755); err != nil {
 		return nil, err
 	}

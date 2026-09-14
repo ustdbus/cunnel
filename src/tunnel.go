@@ -167,6 +167,11 @@ func (s *Store) createTunnel(req CreateTunnelReq) (*Tunnel, error) {
 
 // startTunnel 拉起受管 cloudflared 伪装进程并连接 Cloudflare 边缘
 func (s *Store) startTunnel(t *Tunnel) error {
+	if p := getProc(t.Name); p != nil {
+		p.stop()
+		dropProc(t.Name)
+	}
+
 	bin := cloudflaredBinPath()
 	if _, err := os.Stat(bin); err != nil {
 		var downloadErr error
