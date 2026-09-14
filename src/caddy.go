@@ -100,6 +100,8 @@ func (e *InProcessProxyEngine) ServeHTTP(w http.ResponseWriter, r *http.Request)
 func newReverseProxy(port int, stripPath string, incomingHost string) *httputil.ReverseProxy {
 	targetURL, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+	// 启用即时冲刷，禁止反向代理对 SSE (Server-Sent Events) 和流式数据进行缓冲
+	proxy.FlushInterval = -1
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
