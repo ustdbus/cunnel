@@ -3,185 +3,455 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Cunnel</title>
+<title>Cunnel - 隧道与反向代理管理控制台</title>
 <style>
-  :root{
-    --bg:#f6f7f9; --card:#fff; --bd:rgba(15,23,42,.08); --tx:#1f2937;
-    --sub:#6b7280; --pri:#2563eb; --ok:#16a34a; --warn:#f59e0b; --err:#dc2626;
+  :root {
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --bd: #e2e8f0;
+    --bd-light: #f1f5f9;
+    --tx: #0f172a;
+    --tx-muted: #64748b;
+    --pri: #2563eb;
+    --pri-hover: #1d4ed8;
+    --pri-light: #eff6ff;
+    --ok: #10b981;
+    --ok-light: #ecfdf5;
+    --warn: #f59e0b;
+    --warn-light: #fffbeb;
+    --err: #ef4444;
+    --err-light: #fef2f2;
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+    --shadow-md: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.04);
   }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--tx);
-    font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
-  .wrap{max-width:1180px;margin:0 auto;padding:20px 18px 60px}
-  h1{font-size:20px;margin:0 0 4px}
-  .muted{color:var(--sub);font-size:12px}
-  .tabs{display:flex;gap:6px;margin:18px 0 14px;flex-wrap:wrap}
-  .tab{padding:7px 14px;border-radius:8px;background:#fff;border:1px solid var(--bd);
-    cursor:pointer;font-size:13px;color:var(--sub)}
-  .tab.on{background:var(--pri);color:#fff;border-color:var(--pri);font-weight:600}
-  .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:14px}
-  .card h2{font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
-  .stat{background:#fff;border:1px solid var(--bd);border-radius:10px;padding:12px}
-  .stat b{display:block;font-size:22px;margin-top:2px}
-  label{display:block;font-size:12px;color:var(--sub);margin:10px 0 4px}
-  input,select{width:100%;padding:8px 10px;border:1px solid var(--bd);border-radius:8px;
-    font-size:13px;background:#fff;color:var(--tx)}
-  input:focus,select:focus{outline:2px solid rgba(37,99,235,.25);border-color:var(--pri)}
-  .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;align-items:end}
-  button{padding:8px 16px;border-radius:8px;border:1px solid var(--bd);background:#fff;
-    cursor:pointer;font-size:13px;color:var(--tx)}
-  button.pri{background:var(--pri);color:#fff;border-color:var(--pri);font-weight:600}
-  button.danger{color:var(--err);border-color:rgba(220,38,38,.3)}
-  button.sm{padding:4px 10px;font-size:12px}
-  table{width:100%;border-collapse:collapse;font-size:13px}
-  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--bd);vertical-align:top}
-  th{color:var(--sub);font-weight:600;font-size:12px}
-  code{background:#f1f5f9;padding:1px 6px;border-radius:5px;font-size:12px}
-  .pill{display:inline-block;padding:1px 9px;border-radius:20px;font-size:11px;font-weight:600}
-  .pill.run{background:rgba(22,163,74,.12);color:var(--ok)}
-  .pill.stop{background:rgba(107,114,128,.12);color:var(--sub)}
-  .pill.err{background:rgba(220,38,38,.12);color:var(--err)}
-  .pill.quick{background:rgba(245,158,11,.14);color:#b45309}
-  .pill.named{background:rgba(37,99,235,.12);color:var(--pri)}
-  .empty{color:var(--sub);text-align:center;padding:22px;font-size:13px}
-  .msg{padding:9px 12px;border-radius:8px;margin-bottom:10px;font-size:13px;display:none}
-  .msg.ok{background:rgba(22,163,74,.1);color:#15803d;display:block}
-  .msg.err{background:rgba(220,38,38,.1);color:#b91c1c;display:block}
-  pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;overflow:auto;
-    max-height:340px;font-size:12px;line-height:1.5}
-  .hide{display:none}
-  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  .bar input{width:auto;min-width:180px}
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--tx);
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1140px; margin: 0 auto; padding: 28px 20px 80px; }
+
+  /* 顶部导航与 Header */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo-icon {
+    width: 38px;
+    height: 38px;
+    background: linear-gradient(135deg, #2563eb, #38bdf8);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 20px;
+    box-shadow: 0 4px 10px rgba(37,99,235,0.25);
+  }
+  h1 { font-size: 22px; font-weight: 700; margin: 0; color: var(--tx); letter-spacing: -0.02em; }
+  .header-badges { display: flex; gap: 8px; align-items: center; }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .badge.status-live { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+  .badge.arch { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: #10b981; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+
+  /* 导航选项卡 Tabs (无数字, 调整顺序) */
+  .tabs-nav {
+    display: flex;
+    background: #e2e8f0;
+    padding: 4px;
+    border-radius: 12px;
+    gap: 4px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .tab-btn {
+    padding: 8px 18px;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--tx-muted);
+    transition: all 0.2s ease;
+  }
+  .tab-btn:hover { color: var(--tx); }
+  .tab-btn.on {
+    background: #fff;
+    color: var(--pri);
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* 卡片容器 */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--bd);
+    border-radius: 14px;
+    padding: 22px 24px;
+    margin-bottom: 18px;
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.2s;
+  }
+  .card:hover { box-shadow: var(--shadow); }
+  .card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 18px;
+  }
+  .card h2 {
+    font-size: 16px;
+    font-weight: 700;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--tx);
+  }
+  .muted { color: var(--tx-muted); font-size: 12px; line-height: 1.5; }
+
+  /* 统计仪表网格 */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .stat-card {
+    background: #fff;
+    border: 1px solid var(--bd);
+    border-radius: 14px;
+    padding: 18px 20px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+  }
+  .stat-card::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, #2563eb, #38bdf8);
+  }
+  .stat-label { font-size: 13px; color: var(--tx-muted); font-weight: 500; }
+  .stat-val { font-size: 26px; font-weight: 700; margin-top: 6px; color: var(--tx); }
+  .stat-sub { font-size: 11px; color: var(--ok); margin-top: 4px; font-weight: 600; }
+
+  /* 架构特色信息面板 */
+  .engine-box {
+    background: #f8fafc;
+    border: 1px solid var(--bd);
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 14px;
+  }
+  .engine-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 14px;
+  }
+  .engine-item {
+    background: #fff;
+    border: 1px solid var(--bd);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .engine-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; }
+
+  /* 表单与输入控件 */
+  label { display: block; font-size: 12px; font-weight: 600; color: var(--tx-muted); margin: 12px 0 6px; }
+  input, select {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--bd);
+    border-radius: 8px;
+    font-size: 13px;
+    background: #fff;
+    color: var(--tx);
+    transition: all 0.15s;
+  }
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--pri);
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.15);
+  }
+  .form-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    align-items: end;
+  }
+
+  /* 按钮设计 */
+  .btn-group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
+  button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 18px;
+    border-radius: 8px;
+    border: 1px solid var(--bd);
+    background: #fff;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--tx);
+    transition: all 0.15s ease;
+  }
+  button:hover { background: #f1f5f9; border-color: #cbd5e1; }
+  button.pri {
+    background: var(--pri);
+    color: #fff;
+    border-color: var(--pri);
+  }
+  button.pri:hover { background: var(--pri-hover); }
+  button.danger {
+    color: #b91c1c;
+    background: #fff;
+    border-color: #fca5a5;
+  }
+  button.danger:hover { background: #fef2f2; border-color: #ef4444; }
+  button.sm { padding: 5px 12px; font-size: 12px; border-radius: 6px; }
+
+  /* 表格 */
+  .table-responsive { width: 100%; overflow-x: auto; border-radius: 10px; border: 1px solid var(--bd); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; }
+  th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--bd-light); vertical-align: middle; }
+  th { background: #f8fafc; color: var(--tx-muted); font-weight: 600; font-size: 12px; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #fcfdfe; }
+  code {
+    background: #f1f5f9;
+    color: #0f172a;
+    padding: 2px 7px;
+    border-radius: 5px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+  }
+
+  /* 状态 Pill 胶囊标签 */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .pill.run { background: #ecfdf5; color: #059669; }
+  .pill.stop { background: #f1f5f9; color: #64748b; }
+  .pill.err { background: #fef2f2; color: #dc2626; }
+  .pill.quick { background: #fffbeb; color: #d97706; }
+  .pill.named { background: #eff6ff; color: #2563eb; }
+
+  .empty-box {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--tx-muted);
+  }
+  .empty-icon { font-size: 32px; margin-bottom: 8px; opacity: 0.6; }
+
+  /* 悬浮 Toast 消息 */
+  #toast {
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    z-index: 9999;
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: var(--shadow-md);
+    display: none;
+    transform: translateY(-10px);
+    transition: all 0.25s ease;
+  }
+  #toast.show { display: block; transform: translateY(0); }
+  #toast.ok { background: #065f46; color: #fff; }
+  #toast.err { background: #991b1b; color: #fff; }
+
+  .hide { display: none !important; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>🌐 Cunnel</h1>
-  <div class="muted" id="subtitle">基于 Caddy 的隧道与反向代理管理</div>
-
-  <div id="msg" class="msg"></div>
-
-  <div class="tabs">
-    <div class="tab on" data-t="dash">总览</div>
-    <div class="tab" data-t="tunnel">① 添加隧道</div>
-    <div class="tab" data-t="proc">② VPS 进程</div>
-    <div class="tab" data-t="proxy">③ 代理列表</div>
-    <div class="tab" data-t="addproxy">④ 添加代理</div>
-    <div class="tab" data-t="dep">⑤ Caddy 检测</div>
+  <!-- 顶部 Header -->
+  <div class="header">
+    <div class="brand">
+      <div class="logo-icon">🌐</div>
+      <div>
+        <h1>Cunnel</h1>
+        <div class="muted" id="subtitle">三合一浑然一体隧道与反向代理控制台</div>
+      </div>
+    </div>
+    <div class="header-badges">
+      <span class="badge status-live"><span class="dot"></span>运行中 (Active)</span>
+      <span class="badge arch">True Single Process</span>
+    </div>
   </div>
 
-  <!-- 总览 -->
+  <!-- 提示浮层 -->
+  <div id="toast"></div>
+
+  <!-- 选项卡导航 (已去除数字标号，并对调“添加代理”与“VPS进程”) -->
+  <div class="tabs-nav">
+    <button class="tab-btn on" data-t="dash">总览</button>
+    <button class="tab-btn" data-t="tunnel">添加隧道</button>
+    <button class="tab-btn" data-t="addproxy">添加代理</button>
+    <button class="tab-btn" data-t="proxy">代理列表</button>
+    <button class="tab-btn" data-t="proc">VPS 进程</button>
+  </div>
+
+  <!-- 1. 总览看板 -->
   <section id="p-dash">
-    <div class="grid" id="stats"></div>
-    <div class="card" style="margin-top:14px">
-      <h2>依赖状态</h2>
-      <div id="depbox"></div>
-      <div class="bar" style="margin-top:12px">
-        <button class="pri" onclick="installCaddy()">检测并安装最新稳定版 Caddy</button>
-        <button onclick="installCFD()">安装 cloudflared</button>
-        <button onclick="loadAll()">刷新</button>
+    <div class="stat-grid" id="stats"></div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>⚡ 内置引擎运行架构 (In-Process)</h2>
+        <button class="sm" onclick="loadAll()">刷新状态</button>
+      </div>
+      <div class="muted">
+        Cunnel 已实现控制面板、Caddy 反向代理网关及 Cloudflare 隧道调度全功能三合一，全系统仅有唯一一个进程，零外部子进程，零外部依赖。
+      </div>
+      <div class="engine-box">
+        <div class="engine-grid">
+          <div class="engine-item">
+            <div class="engine-title">
+              <span>🔀 进程内 Caddy 反代引擎</span>
+              <span class="pill run">内置运行中</span>
+            </div>
+            <div class="muted">
+              特性：纯内存原子零停机热重载、多域名/多路径分流、支持 WebSocket 双向流式透传。
+            </div>
+          </div>
+          <div class="engine-item">
+            <div class="engine-title">
+              <span>🌐 进程内 Cloudflare 隧道调度器</span>
+              <span class="pill run">协程托管中</span>
+            </div>
+            <div class="muted">
+              特性：每条隧道拥有专属独立 Context 生命周期，具备 panic 隔离兜底防护。
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </section>
 
-  <!-- ① 添加隧道 -->
+  <!-- 2. 添加隧道 -->
   <section id="p-tunnel" class="hide">
     <div class="card">
-      <h2>① 添加隧道</h2>
-      <div class="row">
+      <h2>创建新隧道</h2>
+      <div class="form-row">
         <div>
-          <label>隧道域名(留空则申请临时隧道)</label>
-          <input id="t-domain" placeholder="例如 a.example.com" />
+          <label>固定域名 (留空则申请 Quick 临时隧道)</label>
+          <input id="t-domain" placeholder="例如 app.yourdomain.com" />
         </div>
         <div>
-          <label>Cloudflare 隧道 Token(留空则申请临时隧道)</label>
+          <label>Cloudflare 隧道 Token (固定域名必填)</label>
           <input id="t-token" placeholder="eyJhIjoi..." />
         </div>
         <div>
-          <label>监听端口(全留空则默认 8080)</label>
+          <label>监听/回源端口 (留空默认 8080)</label>
           <input id="t-port" type="number" placeholder="8080" />
         </div>
       </div>
-      <div class="muted" style="margin-top:10px">
-        填写域名 + Token → 固定隧道;仅填端口 → 临时隧道由 Caddy 按该端口接管;全不填 → 默认 8080 并申请临时隧道。
-        创建后会为该进程随机生成 <code>4位小写字母+4位小写数字</code> 的进程名。
+      <div class="muted" style="margin-top: 12px;">
+        💡 <b>使用提示</b>：填域名 + Token 为固定隧道；仅填端口或全留空将自动生成 <code>*.trycloudflare.com</code> 临时穿透域名。所有隧道直接在主进程内作为协程启动。
       </div>
-      <div class="bar" style="margin-top:12px">
-        <button class="pri" onclick="addTunnel()">创建隧道</button>
+      <div class="btn-group">
+        <button class="pri" onclick="addTunnel()">立即创建隧道</button>
       </div>
     </div>
+
     <div class="card">
-      <h2>隧道列表</h2>
+      <div class="card-head">
+        <h2>当前隧道列表</h2>
+        <button class="sm" onclick="loadTunnels()">刷新</button>
+      </div>
       <div id="tunnels"></div>
     </div>
   </section>
 
-  <!-- ② 进程 -->
-  <section id="p-proc" class="hide">
-    <div class="card">
-      <h2>② 当前 VPS 进程</h2>
-      <div class="bar">
-        <input id="pq" placeholder="按进程名 / PID 过滤" oninput="loadProcs()" />
-        <button onclick="loadProcs()">刷新</button>
-        <span class="muted" id="pcount"></span>
-      </div>
-      <div id="procs" style="margin-top:10px"></div>
-    </div>
-  </section>
-
-  <!-- ③ 代理 -->
-  <section id="p-proxy" class="hide">
-    <div class="card">
-      <h2>③ Caddy 当前代理</h2>
-      <div id="proxyinfo"></div>
-      <div id="proxylist" style="margin-top:12px"></div>
-    </div>
-  </section>
-
-  <!-- ④ 添加代理 -->
+  <!-- 3. 添加代理 (原第4项对调至此) -->
   <section id="p-addproxy" class="hide">
     <div class="card">
-      <h2>④ 添加代理</h2>
-      <div class="row">
+      <h2>添加反向代理路由规则</h2>
+      <div class="form-row">
         <div>
-          <label>选择隧道(以域名显示)</label>
+          <label>选择关联隧道 (按域名匹配)</label>
           <select id="a-tunnel"></select>
         </div>
         <div>
-          <label>内网端口</label>
-          <input id="a-port" type="number" placeholder="3000" />
+          <label>目标服务内网端口</label>
+          <input id="a-port" type="number" placeholder="例如 3000 或 8080" />
         </div>
         <div>
-          <label>路径(默认 /)</label>
+          <label>匹配路径 (默认 /)</label>
           <input id="a-path" placeholder="/" />
         </div>
       </div>
-      <div class="muted" style="margin-top:10px">
-        一条隧道流量可以代理多个路径,同一域名下路径不能重复。临时隧道的域名由面板主动抓取后显示。
+      <div class="muted" style="margin-top: 12px;">
+        💡 <b>分流说明</b>：同一个隧道域名可配置多条代理规则（如 <code>/api</code> 转发至 8080，<code>/</code> 转发至 3000）。规则变动后由内置反代引擎在内存中原子生效。
       </div>
-      <div class="bar" style="margin-top:12px">
-        <button class="pri" onclick="addProxy()">添加代理</button>
-        <button onclick="loadProxies()">刷新</button>
+      <div class="btn-group">
+        <button class="pri" onclick="addProxy()">保存并应用代理</button>
+        <button onclick="loadProxies()">查看现有代理</button>
       </div>
     </div>
   </section>
 
-  <!-- ⑤ Caddy -->
-  <section id="p-dep" class="hide">
+  <!-- 4. 代理列表 (原第3项) -->
+  <section id="p-proxy" class="hide">
     <div class="card">
-      <h2>⑤ Caddy 检测与安装</h2>
-      <div id="depfull"></div>
-      <div class="bar" style="margin-top:12px">
-        <button class="pri" onclick="installCaddy()">拉取最新稳定版</button>
-        <button onclick="caddyAct('start')">启动</button>
-        <button onclick="caddyAct('reload')">热重载</button>
-        <button class="danger" onclick="caddyAct('stop')">停止</button>
+      <div class="card-head">
+        <h2>已生效的反代规则</h2>
+        <button class="sm" onclick="loadProxies()">刷新</button>
       </div>
+      <div id="proxylist"></div>
     </div>
     <div class="card">
-      <h2>生成的 Caddyfile</h2>
-      <pre id="caddyfile">加载中...</pre>
+      <h2>内存反代规则实时预览</h2>
+      <pre id="caddyfile" style="background:#0f172a;color:#94a3b8;padding:14px;border-radius:10px;font-size:12px;overflow-x:auto;">加载中...</pre>
+    </div>
+  </section>
+
+  <!-- 5. VPS 进程 (原第2项对调至此) -->
+  <section id="p-proc" class="hide">
+    <div class="card">
+      <div class="card-head">
+        <h2>VPS 活跃进程与监听端口</h2>
+        <span class="muted" id="pcount"></span>
+      </div>
+      <div class="muted" style="margin-bottom:12px">
+        实时探测本机各进程正在监听的 TCP 端口，方便直接确认目标后端端口是否正常启动。
+      </div>
+      <div class="btn-group" style="margin-top:0; margin-bottom:14px;">
+        <input id="pq" placeholder="按进程名 / 端口 / PID 筛选..." oninput="loadProcs()" style="max-width:320px;" />
+        <button onclick="loadProcs()">立即刷新</button>
+      </div>
+      <div id="procs"></div>
     </div>
   </section>
 </div>
@@ -192,10 +462,10 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&l
 let state = { tunnels: [], caddy: {} };
 
 function toast(text, ok = true) {
-  const m = $("#msg");
-  m.className = "msg " + (ok ? "ok" : "err");
+  const m = $("#toast");
+  m.className = (ok ? "ok" : "err") + " show";
   m.textContent = text;
-  if (ok) setTimeout(() => { m.className = "msg"; }, 5000);
+  setTimeout(() => { m.className = ""; }, 4000);
 }
 
 async function api(path, opts = {}) {
@@ -210,54 +480,52 @@ async function api(path, opts = {}) {
   return j.data;
 }
 
-document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
-  document.querySelectorAll(".tab").forEach(x => x.classList.remove("on"));
+// 选项卡切换逻辑 (支持 dash, tunnel, addproxy, proxy, proc)
+document.querySelectorAll(".tab-btn").forEach(t => t.onclick = () => {
+  document.querySelectorAll(".tab-btn").forEach(x => x.classList.remove("on"));
   t.classList.add("on");
-  ["dash","tunnel","proc","proxy","addproxy","dep"].forEach(k =>
-    $("#p-" + k).classList.toggle("hide", k !== t.dataset.t));
+  ["dash", "tunnel", "addproxy", "proxy", "proc"].forEach(k => {
+    const el = $("#p-" + k);
+    if (el) el.classList.toggle("hide", k !== t.dataset.t);
+  });
   if (t.dataset.t === "proc") loadProcs();
-  if (t.dataset.t === "proxy") loadProxies();
-  if (t.dataset.t === "dep") loadCaddy();
+  if (t.dataset.t === "proxy") { loadProxies(); loadCaddyfile(); }
   if (t.dataset.t === "addproxy") fillTunnelSelect();
+  if (t.dataset.t === "tunnel") loadTunnels();
 });
 
-// ── 总览 ──
+// ── 总览统计 ──
 async function loadAll() {
   try {
     const d = await api("/api/overview");
     state.caddy = d.caddy;
     $("#stats").innerHTML = `
-      <div class="stat"><span class="muted">隧道总数</span><b>${d.tunnel_count}</b></div>
-      <div class="stat"><span class="muted">运行中隧道</span><b>${d.running_count}</b></div>
-      <div class="stat"><span class="muted">代理规则</span><b>${d.proxy_count}</b></div>
-      <div class="stat"><span class="muted">Caddy</span><b style="font-size:15px">${d.caddy.installed ? (d.caddy.running ? "运行中" : "已安装") : "未安装"}</b></div>
+      <div class="stat-card">
+        <div class="stat-label">隧道总数</div>
+        <div class="stat-val">${d.tunnel_count}</div>
+        <div class="stat-sub">协程托管</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">运行中隧道</div>
+        <div class="stat-val" style="color:var(--ok)">${d.running_count}</div>
+        <div class="stat-sub">活跃链路</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">生效代理规则</div>
+        <div class="stat-val">${d.proxy_count}</div>
+        <div class="stat-sub">内存路由表</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">内置 Caddy 引擎</div>
+        <div class="stat-val" style="font-size:18px;color:var(--pri)">运行中 (PID ${d.caddy.pid})</div>
+        <div class="stat-sub">In-Process 原生运行</div>
+      </div>
     `;
-    $("#depbox").innerHTML = depHTML(d.caddy, d.cloudflared);
-    $("#depfull").innerHTML = depHTML(d.caddy, d.cloudflared);
-    $("#subtitle").textContent = "面板目录 " + d.panel_dir;
+    $("#subtitle").textContent = "运行目录: " + d.panel_dir + " · 单进程架构";
   } catch (e) { toast("加载概览失败: " + e.message, false); }
 }
 
-function depHTML(c, f) {
-  const caddyRow = c.installed
-    ? `<tr><td>Caddy</td><td><span class="pill run">已安装</span></td>
-       <td><code>${esc(c.version || "-")}</code></td><td><code>${esc(c.path)}</code></td>
-       <td>${c.running ? `<span class="pill run">运行中 PID ${c.pid}</span>` : '<span class="pill stop">未运行</span>'}</td>
-       <td>${c.latest ? esc(c.latest) : "-"}</td></tr>`
-    : `<tr><td>Caddy</td><td><span class="pill err">未安装</span></td><td>-</td>
-       <td><code>${esc(c.path)}</code></td><td><span class="pill stop">未运行</span></td>
-       <td>${c.latest ? esc(c.latest) : "-"}</td></tr>`;
-  const cfdRow = f && f.installed
-    ? `<tr><td>cloudflared</td><td><span class="pill run">已安装</span></td>
-       <td><code>${esc(f.version || "-")}</code></td><td><code>${esc(f.path)}</code></td><td>-</td>
-       <td>${f.latest ? esc(f.latest) : "-"}</td></tr>`
-    : `<tr><td>cloudflared</td><td><span class="pill err">未安装</span></td><td>-</td>
-       <td><code>${esc(f ? f.path : "-")}</code></td><td>-</td><td>${f && f.latest ? esc(f.latest) : "-"}</td></tr>`;
-  return `<table><thead><tr><th>组件</th><th>状态</th><th>本地版本</th><th>路径</th><th>进程</th><th>最新稳定版</th></tr></thead>
-    <tbody>${caddyRow}${cfdRow}</tbody></table>`;
-}
-
-// ── ① 隧道 ──
+// ── 隧道逻辑 ──
 async function addTunnel() {
   const body = {
     domain: $("#t-domain").value.trim(),
@@ -266,8 +534,7 @@ async function addTunnel() {
   };
   try {
     const d = await api("/api/tunnels", { method: "POST", body });
-    if (d.error) toast("已记录但启动异常: " + d.error, false);
-    else toast(`隧道 ${d.tunnel.name} 已创建(${d.tunnel.mode === "named" ? "固定域名" : "临时隧道"})`);
+    toast(`隧道 ${d.tunnel.name} 创建成功 (${d.tunnel.mode === "named" ? "固定域名" : "Quick 临时隧道"})`);
     $("#t-domain").value = ""; $("#t-token").value = ""; $("#t-port").value = "";
     loadTunnels(); fillTunnelSelect();
   } catch (e) { toast("创建失败: " + e.message, false); }
@@ -279,116 +546,70 @@ async function loadTunnels() {
     state.tunnels = d.tunnels || [];
     fillTunnelSelect();
     if (!state.tunnels.length) {
-      $("#tunnels").innerHTML = `<div class="empty">暂无隧道</div>`; return;
+      $("#tunnels").innerHTML = `<div class="empty-box"><div class="empty-icon">🌐</div><div>暂无运行中的隧道，请在上方添加</div></div>`;
+      return;
     }
-    $("#tunnels").innerHTML = `<table><thead><tr>
-      <th>进程名</th><th>模式</th><th>域名</th><th>端口</th><th>PID</th><th>状态</th><th>操作</th>
+    $("#tunnels").innerHTML = `<div class="table-responsive"><table><thead><tr>
+      <th>标识</th><th>类型</th><th>域名 / URL</th><th>目标端口</th><th>架构归属</th><th>运行状态</th><th>操作</th>
       </tr></thead><tbody>${state.tunnels.map(t => `
       <tr>
         <td><code>${esc(t.name)}</code></td>
-        <td><span class="pill ${t.mode}">${t.mode === "named" ? "固定域名" : "临时"}</span></td>
-        <td>${t.domain ? `<code>${esc(t.domain)}</code>` : '<span class="muted">获取中…</span>'}</td>
-        <td>${t.port}</td>
-        <td>${t.pid || "-"}</td>
+        <td><span class="pill ${t.mode}">${t.mode === "named" ? "固定域名" : "Quick 临时"}</span></td>
+        <td>${t.domain ? `<a href="https://${esc(t.domain)}" target="_blank" style="color:var(--pri);font-weight:600;text-decoration:none;">${esc(t.domain)} ↗</a>` : '<span class="muted">获取中…</span>'}</td>
+        <td><code>${t.port}</code></td>
+        <td><span class="muted">PID ${t.pid || "-"} (内存协程)</span></td>
         <td><span class="pill ${t.status === "running" ? "run" : (t.status === "error" ? "err" : "stop")}">
-          ${t.status === "running" ? "运行中" : (t.status === "error" ? "异常" : "已停止")}</span>
-          ${t.error ? `<div class="muted">${esc(t.error)}</div>` : ""}</td>
-        <td class="bar">
-          ${t.status === "running"
-            ? `<button class="sm" onclick="tAct('${t.id}','stop')">停止</button>`
-            : `<button class="sm" onclick="tAct('${t.id}','start')">启动</button>`}
-          <button class="sm" onclick="tAct('${t.id}','domain')">刷新域名</button>
-          <button class="sm" onclick="showLogs('${t.id}')">日志</button>
-          <button class="sm danger" onclick="delTunnel('${t.id}')">删除</button>
+          ${t.status === "running" ? "● 运行中" : (t.status === "error" ? "异常" : "已停止")}</span>
+          ${t.error ? `<div class="muted" style="color:var(--err)">${esc(t.error)}</div>` : ""}</td>
+        <td>
+          <div style="display:flex;gap:6px;">
+            ${t.status === "running"
+              ? `<button class="sm" onclick="tAct('${t.id}','stop')">停止</button>`
+              : `<button class="sm" onclick="tAct('${t.id}','start')">启动</button>`}
+            <button class="sm" onclick="showLogs('${t.id}')">日志</button>
+            <button class="sm danger" onclick="delTunnel('${t.id}')">删除</button>
+          </div>
         </td>
-      </tr>`).join("")}</tbody></table>`;
+      </tr>`).join("")}</tbody></table></div>`;
   } catch (e) { toast("加载隧道失败: " + e.message, false); }
 }
 
 async function tAct(id, action) {
   try {
-    if (action === "domain") {
-      const d = await api(`/api/tunnels/${id}/domain`, { method: "POST" });
-      toast(d.domain ? "当前域名: " + d.domain : "域名尚未就绪,请稍后重试", !!d.domain);
-    } else {
-      await api(`/api/tunnels/${id}/${action}`, { method: "POST" });
-      toast(action === "stop" ? "隧道已停止" : "隧道已启动");
-    }
-    loadTunnels(); fillTunnelSelect();
+    await api(`/api/tunnels/${id}/${action}`, { method: "POST" });
+    toast(action === "stop" ? "隧道已平滑停止" : "隧道已在进程内启动");
+    loadTunnels(); fillTunnelSelect(); loadAll();
   } catch (e) { toast("操作失败: " + e.message, false); }
 }
 
 async function delTunnel(id) {
-  if (!confirm("删除该隧道及其代理规则?")) return;
-  try { await api(`/api/tunnels/${id}`, { method: "DELETE" }); toast("已删除"); loadTunnels(); fillTunnelSelect(); }
-  catch (e) { toast("删除失败: " + e.message, false); }
+  if (!confirm("确定删除该隧道及其所有关联的代理规则吗?")) return;
+  try {
+    await api(`/api/tunnels/${id}`, { method: "DELETE" });
+    toast("隧道已删除");
+    loadTunnels(); fillTunnelSelect(); loadAll();
+  } catch (e) { toast("删除失败: " + e.message, false); }
 }
 
 async function showLogs(id) {
   try {
     const d = await api(`/api/tunnels/${id}/logs`);
-    const w = window.open("", "_blank", "width=900,height=600");
-    w.document.write(`<title>${esc(d.name)} 日志</title>
-      <pre style="font:12px/1.5 monospace;white-space:pre-wrap;padding:12px">${esc((d.logs || []).join("\n"))}</pre>`);
+    const w = window.open("", "_blank", "width=860,height=540");
+    w.document.write(`<title>${esc(d.name)} 运行日志</title>
+      <body style="margin:0;background:#0f172a;color:#e2e8f0;padding:16px;">
+      <pre style="font:12px/1.6 monospace;white-space:pre-wrap;">${esc((d.logs || []).join("\n"))}</pre></body>`);
   } catch (e) { toast("读取日志失败: " + e.message, false); }
 }
 
-// ── ② 进程 ──
-async function loadProcs() {
-  try {
-    const q = $("#pq").value.trim();
-    const d = await api("/api/processes" + (q ? "?q=" + encodeURIComponent(q) : ""));
-    const ps = d.processes || [];
-    $("#pcount").textContent = `共 ${ps.length} 个进程`;
-    if (!ps.length) { $("#procs").innerHTML = `<div class="empty">无匹配进程</div>`; return; }
-    $("#procs").innerHTML = `<table><thead><tr>
-      <th>PID</th><th>进程名</th><th>监听地址/端口</th></tr></thead>
-      <tbody>${ps.map(p => `<tr>
-        <td>${p.pid}</td>
-        <td>${p.managed ? "🔧 " : ""}<code>${esc(p.name)}</code></td>
-        <td>${(p.listen || []).length ? `<code>${esc(p.listen.join(", "))}</code>` : `<span class="muted">无 TCP 监听</span>`}</td>
-      </tr>`).join("")}</tbody></table>`;
-  } catch (e) { toast("加载进程失败: " + e.message, false); }
-}
-
-// ── ③ 代理 ──
-async function loadProxies() {
-  try {
-    const d = await api("/api/caddy/proxies");
-    const c = d.caddy || {};
-    $("#proxyinfo").innerHTML = `
-      <table><tbody>
-        <tr><th>Caddy 状态</th><td>${c.installed ? `<span class="pill run">已安装</span> ${c.running ? `运行中 (PID ${c.pid})` : "未运行"}` : '<span class="pill err">未安装</span>'}</td>
-        <th>版本</th><td><code>${esc(c.version || "-")}</code></td></tr>
-      </tbody></table>`;
-    const rows = d.proxies || [];
-    $("#proxylist").innerHTML = rows.length ? `<table><thead><tr>
-      <th>域名</th><th>路径</th><th>内网端口</th><th>所属隧道进程</th><th>隧道状态</th><th>操作</th>
-      </tr></thead><tbody>${rows.map(p => `<tr>
-        <td><code>${esc(p.domain)}</code></td>
-        <td><code>${esc(p.path)}</code></td>
-        <td>${p.upstream_port}</td>
-        <td><code>${esc(p.tunnel_name)}</code></td>
-        <td>${p.tunnel_status === "running" ? '<span class="pill run">运行中</span>' : '<span class="pill stop">已停止</span>'}</td>
-        <td><button class="sm danger" onclick="delProxy('${p.id}')">删除</button></td>
-      </tr>`).join("")}</tbody></table>` : `<div class="empty">Caddy 当前没有代理规则</div>`;
-  } catch (e) { toast("加载代理失败: " + e.message, false); }
-}
-
-async function delProxy(id) {
-  if (!confirm("删除该代理规则?")) return;
-  try { await api(`/api/proxies/${id}`, { method: "DELETE" }); toast("已删除"); loadProxies(); }
-  catch (e) { toast("删除失败: " + e.message, false); }
-}
-
-// ── ④ 添加代理 ──
+// ── 代理逻辑 ──
 function fillTunnelSelect() {
   const sel = $("#a-tunnel");
+  if (!sel) return;
   const list = state.tunnels.filter(t => t.domain);
   const old = sel.value;
   sel.innerHTML = list.length
-    ? list.map(t => `<option value="${t.id}">${esc(t.domain)}${t.mode === "quick" ? " (临时)" : ""}</option>`).join("")
-    : `<option value="">暂无可用隧道域名</option>`;
+    ? list.map(t => `<option value="${t.id}">${esc(t.domain)} (${t.mode === "quick" ? "临时" : "固定"})</option>`).join("")
+    : `<option value="">暂无可用隧道域名 (请先创建隧道)</option>`;
   if (old) sel.value = old;
 }
 
@@ -398,45 +619,74 @@ async function addProxy() {
     upstream_port: parseInt($("#a-port").value || "0", 10) || 0,
     path: $("#a-path").value.trim() || "/",
   };
-  if (!body.tunnel_id) return toast("请先选择隧道", false);
+  if (!body.tunnel_id) return toast("请先选择关联的隧道", false);
+  if (!body.upstream_port) return toast("请输入有效的内网端口", false);
   try {
     await api("/api/proxies", { method: "POST", body });
-    toast(`代理已添加:${body.path} → 127.0.0.1:${body.upstream_port}`);
+    toast(`反代规则已生效: ${body.path} → 127.0.0.1:${body.upstream_port}`);
     $("#a-port").value = ""; $("#a-path").value = "";
-    loadProxies();
+    loadProxies(); loadAll();
   } catch (e) { toast("添加失败: " + e.message, false); }
 }
 
-// ── ⑤ Caddy ──
-async function loadCaddy() {
+async function loadProxies() {
   try {
-    const d = await api("/api/caddy");
-    $("#depfull").innerHTML = depHTML(d.caddy, await api("/api/deps").then(x => x.cloudflared));
+    const d = await api("/api/caddy/proxies");
+    const rows = d.proxies || [];
+    $("#proxylist").innerHTML = rows.length ? `<div class="table-responsive"><table><thead><tr>
+      <th>外部访问域名</th><th>URL 路由路径</th><th>转发本地端口</th><th>所属隧道</th><th>状态</th><th>操作</th>
+      </tr></thead><tbody>${rows.map(p => `<tr>
+        <td><code>${esc(p.domain)}</code></td>
+        <td><code>${esc(p.path)}</code></td>
+        <td><span style="font-weight:600;color:var(--pri)">127.0.0.1:${p.upstream_port}</span></td>
+        <td><code>${esc(p.tunnel_name)}</code></td>
+        <td>${p.tunnel_status === "running" ? '<span class="pill run">活跃监听</span>' : '<span class="pill stop">隧道已停</span>'}</td>
+        <td><button class="sm danger" onclick="delProxy('${p.id}')">移除</button></td>
+      </tr>`).join("")}</tbody></table></div>` : `<div class="empty-box"><div class="empty-icon">🔀</div><div>暂无代理规则，请切换到“添加代理”进行配置</div></div>`;
+  } catch (e) { toast("加载代理失败: " + e.message, false); }
+}
+
+async function delProxy(id) {
+  if (!confirm("确定移除该代理规则吗?")) return;
+  try {
+    await api(`/api/proxies/${id}`, { method: "DELETE" });
+    toast("规则已移除并已从内存注销");
+    loadProxies(); loadAll(); loadCaddyfile();
+  } catch (e) { toast("移除失败: " + e.message, false); }
+}
+
+async function loadCaddyfile() {
+  try {
     const cf = await api("/api/caddyfile");
     $("#caddyfile").textContent = cf.content;
-  } catch (e) { toast("加载 Caddy 信息失败: " + e.message, false); }
+  } catch (e) {}
 }
 
-async function installCaddy() {
-  toast("正在检测并拉取最新稳定版 Caddy…");
-  try { const d = await api("/api/caddy?action=install", { method: "POST" }); toast(d.message + "(" + (d.caddy.version || "") + ")"); loadAll(); loadCaddy(); }
-  catch (e) { toast("安装失败: " + e.message, false); }
+// ── VPS 进程探测 ──
+async function loadProcs() {
+  try {
+    const q = $("#pq").value.trim();
+    const d = await api("/api/processes" + (q ? "?q=" + encodeURIComponent(q) : ""));
+    const ps = d.processes || [];
+    $("#pcount").textContent = `共检测到 ${ps.length} 个本地进程`;
+    if (!ps.length) {
+      $("#procs").innerHTML = `<div class="empty-box"><div class="empty-icon">🔍</div><div>未匹配到任何进程</div></div>`;
+      return;
+    }
+    $("#procs").innerHTML = `<div class="table-responsive"><table><thead><tr>
+      <th>PID</th><th>进程名称</th><th>监听 TCP 端口</th>
+      </tr></thead><tbody>${ps.map(p => `<tr>
+        <td><code>${p.pid}</code></td>
+        <td><b>${esc(p.name)}</b></td>
+        <td>${(p.listen || []).length ? `<span class="pill run" style="font-family:monospace">${esc(p.listen.join(", "))}</span>` : `<span class="muted">无监听</span>`}</td>
+      </tr>`).join("")}</tbody></table></div>`;
+  } catch (e) { toast("加载进程失败: " + e.message, false); }
 }
 
-async function installCFD() {
-  toast("正在安装 cloudflared…");
-  try { await api("/api/deps?action=install-cloudflared", { method: "POST" }); toast("cloudflared 安装完成"); loadAll(); }
-  catch (e) { toast("安装失败: " + e.message, false); }
-}
-
-async function caddyAct(a) {
-  try { await api(`/api/caddy?action=${a}`, { method: "POST" }); toast("Caddy " + a + " 完成"); loadAll(); loadCaddy(); }
-  catch (e) { toast("操作失败: " + e.message, false); }
-}
-
+// 初始化
 loadAll();
 loadTunnels();
-setInterval(() => { loadTunnels(); }, 8000);
+setInterval(() => { loadTunnels(); }, 10000);
 </script>
 </body>
 </html>
