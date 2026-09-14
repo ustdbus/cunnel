@@ -247,14 +247,22 @@ func listProcesses() ([]PSProc, error) {
 }
 
 // waitQuickURL 等待 cloudflared 临时隧道输出公网域名。
-// 直接从日志文件读取,避免 tail 缓冲区带来的时序问题。
-func waitQuickURL(logPath string, timeout time.Duration) string {
+// 从指定的 startOffset 开始查找，始终取最新下发的那一条，防止读取到历史已废弃的旧域名。
+func waitQuickURL(logPath string, startOffset int64, timeout time.Duration) string {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if b, err := os.ReadFile(logPath); err == nil {
-			if m := quickURL.FindString(string(b)); m != "" {
-				return m
+		if f, err := os.Open(logPath); err == nil {
+			if st, serr := f.Stat(); serr == nil && st.Size() > startOffset {
+				buf := make([]byte, st.Size()-startOffset)
+				if _, rerr := f.ReadAt(buf, startOffset); rerr == nil {
+					matches := quickURL.FindAllString(string(buf), -1)
+					if len(matches) > 0 {
+						_ = f.Close()
+						return matches[len(matches)-1]
+					}
+				}
 			}
+			_ = f.Close()
 		}
 		time.Sleep(400 * time.Millisecond)
 	}

@@ -177,6 +177,11 @@ func (s *Store) startTunnel(t *Tunnel) error {
 		env = append(env, "TUNNEL_METRICS=127.0.0.1:0")
 	}
 
+	var startOffset int64
+	if st, err := os.Stat(t.LogFile); err == nil {
+		startOffset = st.Size()
+	}
+
 	p, err := startProc(t.Name, bin, args, env, t.LogFile)
 	if err != nil {
 		return fmt.Errorf("启动 cloudflared 失败: %w", err)
@@ -195,7 +200,7 @@ func (s *Store) startTunnel(t *Tunnel) error {
 					log.Printf("[quick-tunnel %s] 协程异常恢复: %v", t.ID, r)
 				}
 			}()
-			url := waitQuickURL(t.LogFile, 60*time.Second)
+			url := waitQuickURL(t.LogFile, startOffset, 60*time.Second)
 			if url != "" {
 				cleanDomain := strings.TrimPrefix(url, "https://")
 				cleanDomain = strings.TrimPrefix(cleanDomain, "http://")
