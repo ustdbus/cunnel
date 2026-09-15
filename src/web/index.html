@@ -374,12 +374,18 @@
           <input id="t-token" placeholder="eyJhIjoi..." />
         </div>
         <div>
-          <label>监听/回源端口 (留空默认 8080)</label>
-          <input id="t-port" type="number" placeholder="8080" />
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <label style="margin-bottom:0;">回源端口 (CF 流量打入端口)</label>
+            <a href="javascript:void(0)" onclick="fillIngressPort()" style="font-size:11px;color:var(--pri);text-decoration:none;font-weight:600;">⚡ 填入反代入口</a>
+          </div>
+          <input id="t-port" type="number" placeholder="留空默认 8080" style="margin-top:6px;" />
         </div>
       </div>
-      <div class="muted" style="margin-top: 12px;">
-        💡 <b>使用提示</b>：填域名 + Token 为固定隧道；仅填端口或全留空将自动生成 <code>*.trycloudflare.com</code> 临时穿透域名。所有隧道直接在主进程内作为协程启动。
+      <div class="muted" style="margin-top: 12px;line-height:1.6;">
+        💡 <b>回源说明</b>：此端口为 Cloudflare 隧道公网流量在本地打入的目标端口。<br/>
+        • <b>直连模式（推荐单服务）</b>：填入本机实际服务端口（如 8080 或面板端口），流量穿透直达服务；<br/>
+        • <b>反代模式（多路径/多域名）</b>：点击右上角填入反代入口（如 2080），后续可在“添加代理”中配置 <code>/api</code> 等高级分流。<br/>
+        • 固定域名隧道：请在 Cloudflare Zero Trust 控制台添加 Hostname Service 时将 URL 端口与此端口保持一致。
       </div>
       <div class="btn-group">
         <button class="pri" onclick="addTunnel()">立即创建隧道</button>
@@ -500,6 +506,7 @@ async function loadAll() {
   try {
     const d = await api("/api/overview");
     state.caddy = d.caddy;
+    state.overview = d;
 
     if (d.panel_tunnel_url) {
       $("#panel-ingress").innerHTML = `
@@ -553,6 +560,12 @@ async function loadAll() {
   } catch (e) { toast("加载概览失败: " + e.message, false); }
 }
 
+function fillIngressPort() {
+  const p = (state.overview && state.overview.ingress_port) || 2080;
+  $("#t-port").value = p;
+  toast(`已填入当前反代入口端口 :${p}`);
+}
+
 async function editIngressPort(currentPort) {
   const pStr = prompt(`请输入新的反代引擎入口端口 (1~65535):\n建议使用高位端口 (如 2080、8080 等)。若冲突系统将自动避让。`, currentPort);
   if (!pStr) return;
@@ -596,14 +609,22 @@ async function loadTunnels() {
       $("#tunnels").innerHTML = `<div class="empty-box"><div class="empty-icon">🌐</div><div>暂无运行中的隧道，请在上方添加</div></div>`;
       return;
     }
+    const ingressPort = (state.overview && state.overview.ingress_port) || 2080;
     $("#tunnels").innerHTML = `<div class="table-responsive"><table><thead><tr>
-      <th>标识</th><th>类型</th><th>域名 / URL</th><th>目标端口</th><th>架构归属</th><th>运行状态</th><th>操作</th>
-      </tr></thead><tbody>${state.tunnels.map(t => `
+      <th>标识</th><th>类型</th><th>域名 / URL</th><th>回源/打入端口</th><th>架构归属</th><th>运行状态</th><th>操作</th>
+      </tr></thead><tbody>${state.tunnels.map(t => {
+        const isIngress = t.port === ingressPort;
+        return `
       <tr>
         <td><code>${esc(t.name)}</code></td>
         <td><span class="pill ${t.mode}">${t.mode === "named" ? "固定域名" : "Quick 临时"}</span></td>
         <td>${t.domain ? `<a href="https://${esc(t.domain)}" target="_blank" style="color:var(--pri);font-weight:600;text-decoration:none;">${esc(t.domain)} ↗</a>` : '<span class="muted">获取中…</span>'}</td>
-        <td><code>${t.port}</code></td>
+        <td>
+          <code>${t.port}</code>
+          ${isIngress 
+            ? '<span class="pill" style="font-size:10px;background:#e0e7ff;color:#4338ca;margin-left:4px;">分流反代</span>' 
+            : '<span class="pill" style="font-size:10px;background:#f1f5f9;color:#475569;margin-left:4px;">直通</span>'}
+        </td>
         <td><span class="muted">PID ${t.pid || "-"} (内存协程)</span></td>
         <td><span class="pill ${t.status === "running" ? "run" : (t.status === "error" ? "err" : "stop")}">
           ${t.status === "running" ? "● 运行中" : (t.status === "error" ? "异常" : "已停止")}</span>
@@ -616,7 +637,8 @@ async function loadTunnels() {
             <button class="sm danger" onclick="delTunnel('${t.id}')">删除</button>
           </div>
         </td>
-      </tr>`).join("")}</tbody></table></div>`;
+      </tr>`;
+      }).join("")}</tbody></table></div>`;
   } catch (e) { toast("加载隧道失败: " + e.message, false); }
 }
 

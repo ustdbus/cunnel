@@ -158,7 +158,7 @@ func listenWithFallback(host string, startPort int, avoidPort int) (net.Listener
 	return nil, "", 0, fmt.Errorf("无法找到空闲端口")
 }
 
-// autoBootstrapPanelProxy 检查并自动创建一条临时隧道代理控制面板自身实际端口
+// autoBootstrapPanelProxy 检查并自动创建一条临时隧道直连控制面板自身实际端口
 func autoBootstrapPanelProxy(port int) {
 	store.mu.Lock()
 	needInit := len(store.Tunnels) == 0 && len(store.Proxies) == 0
@@ -168,7 +168,7 @@ func autoBootstrapPanelProxy(port int) {
 		return
 	}
 
-	log.Printf("[Bootstrap] 检测到全新安装，正在自动申请 Cloudflare 临时隧道并代理本地面板端口 :%d ...", port)
+	log.Printf("[Bootstrap] 检测到全新安装，正在自动申请 Cloudflare 临时隧道并直连本地面板端口 :%d ...", port)
 	tun, err := store.createTunnel(CreateTunnelReq{
 		Port: port,
 	})
@@ -195,28 +195,10 @@ func autoBootstrapPanelProxy(port int) {
 	if finalTun != nil {
 		domain = finalTun.Domain
 	}
-	hasProxy := false
-	for _, p := range store.Proxies {
-		if p.TunnelID == tun.ID {
-			hasProxy = true
-			break
-		}
-	}
 	store.mu.Unlock()
 
-	if domain != "" && !hasProxy {
-		_, err = store.createProxy(CreateProxyReq{
-			TunnelID:     tun.ID,
-			Path:         "/",
-			UpstreamPort: port,
-		})
-		if err != nil {
-			log.Printf("[Bootstrap] 自动绑定面板代理规则警告: %v", err)
-		}
-	}
-
 	if domain != "" {
-		log.Printf("[Bootstrap] 面板临时安全隧道初始化成功! 外网访问入口: https://%s (代理本地 %d 端口)", domain, port)
+		log.Printf("[Bootstrap] 面板临时安全隧道初始化成功! 外网访问入口: https://%s (直连本地 %d 端口)", domain, port)
 	} else {
 		log.Printf("[Bootstrap] 临时安全隧道正在后台建立，待 Cloudflare 边缘下发域名后将自动生效")
 	}
@@ -238,11 +220,19 @@ func registerRoutes(mux *http.ServeMux) {
 		store.syncStatus()
 		panelTunnelURL := ""
 		store.mu.Lock()
-		for _, p := range store.Proxies {
-			if p.UpstreamPort == actualPort || p.Path == "/" {
-				if t := store.FindTunnel(p.TunnelID); t != nil && t.Domain != "" {
-					panelTunnelURL = "https://" + t.Domain
-					break
+		for _, t := range store.Tunnels {
+			if t.Port == actualPort && t.Domain != "" && t.Status == "running" {
+				panelTunnelURL = "https://" + t.Domain
+				break
+			}
+		}
+		if panelTunnelURL == "" {
+			for _, p := range store.Proxies {
+				if p.UpstreamPort == actualPort || p.Path == "/" {
+					if t := store.FindTunnel(p.TunnelID); t != nil && t.Domain != "" {
+						panelTunnelURL = "https://" + t.Domain
+						break
+					}
 				}
 			}
 		}

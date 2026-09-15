@@ -227,10 +227,14 @@ func (s *Store) startTunnel(t *Tunnel) error {
 	if t.Mode == "named" {
 		args = []string{"tunnel", "--no-autoupdate", "run", "--token", t.Token}
 	} else {
-		// 临时隧道把公网流量转发给内置反向代理引擎 (s.IngressPort 默认 8080)
+		// 临时隧道把公网流量转发给指定的回源端口 (t.Port)
+		targetPort := t.Port
+		if targetPort <= 0 {
+			targetPort = 8080
+		}
 		args = []string{
 			"tunnel", "--no-autoupdate", "--url",
-			fmt.Sprintf("http://127.0.0.1:%d", s.IngressPort),
+			fmt.Sprintf("http://127.0.0.1:%d", targetPort),
 		}
 		env = append(env, "TUNNEL_METRICS=127.0.0.1:0")
 	}
@@ -271,7 +275,7 @@ func (s *Store) startTunnel(t *Tunnel) error {
 				oldDomain := t.Domain
 				t.Domain = cleanDomain
 
-				// 检查并自动更新或创建反代规则
+				// 若已有代理规则关联了该隧道，同步更新其域名
 				hasProxy := false
 				for _, p := range s.Proxies {
 					if p.TunnelID == t.ID || (oldDomain != "" && strings.EqualFold(p.Domain, oldDomain)) {
@@ -279,23 +283,14 @@ func (s *Store) startTunnel(t *Tunnel) error {
 						hasProxy = true
 					}
 				}
-				if !hasProxy && t.Port > 0 {
-					pr := &Proxy{
-						ID:           RandID(),
-						TunnelID:     t.ID,
-						Domain:       cleanDomain,
-						Path:         "/",
-						UpstreamPort: t.Port,
-						CreatedAt:    time.Now(),
-					}
-					s.Proxies = append(s.Proxies, pr)
-				}
 				_ = s.saveLocked()
 				s.mu.Unlock()
 
-				// 域名就绪后重载内置反代路由
-				_ = s.reloadCaddy()
-				log.Printf("[Tunnel-%s] 临时安全隧道就绪: https://%s -> 本地反代", t.Name, cleanDomain)
+				if hasProxy {
+					// 域名就绪后重载内置反代路由
+					_ = s.reloadCaddy()
+				}
+				log.Printf("[Tunnel-%s] 临时安全隧道就绪: https://%s -> 127.0.0.1:%d", t.Name, cleanDomain, t.Port)
 
 				// 获取域名成功 60 秒后自动清理底层日志，只保留简短连通记录
 				go func(pName, domain string) {
