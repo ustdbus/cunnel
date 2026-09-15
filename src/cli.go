@@ -49,7 +49,7 @@ func handleCLIIfRequested() bool {
 			printCLIHelp()
 			return true
 		case "-v", "--version", "version":
-			fmt.Printf("Cunnel v1.2.1 (Caddy & Cloudflare Tunnel Single-Process Platform)\n")
+			fmt.Printf("Cunnel v1.2.2 (Caddy & Cloudflare Tunnel Single-Process Platform)\n")
 			return true
 		}
 	}

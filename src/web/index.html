@@ -313,50 +313,30 @@
   <!-- 提示浮层 -->
   <div id="toast"></div>
 
-  <!-- 选项卡导航 (已去除数字标号，并对调“添加代理”与“VPS进程”) -->
+  <!-- 选项卡导航 -->
   <div class="tabs-nav">
     <button class="tab-btn on" data-t="dash">总览</button>
     <button class="tab-btn" data-t="tunnel">添加隧道</button>
     <button class="tab-btn" data-t="addproxy">添加代理</button>
-    <button class="tab-btn" data-t="proxy">代理列表</button>
     <button class="tab-btn" data-t="proc">VPS 进程</button>
   </div>
 
-  <!-- 1. 总览看板 -->
+  <!-- 1. 总览看板 (已整合反代规则与实时预览) -->
   <section id="p-dash">
     <div id="panel-ingress"></div>
     <div class="stat-grid" id="stats"></div>
 
     <div class="card">
       <div class="card-head">
-        <h2>⚡ 内置引擎运行架构 (In-Process)</h2>
-        <button class="sm" onclick="loadAll()">刷新状态</button>
+        <h2>已生效的反代规则</h2>
+        <button class="sm" onclick="loadProxies(); loadCaddyfile();">刷新</button>
       </div>
-      <div class="muted">
-        Cunnel 已实现控制面板、Caddy 反向代理网关及 Cloudflare 隧道调度全功能三合一，全系统仅有唯一一个进程，零外部子进程，零外部依赖。
-      </div>
-      <div class="engine-box">
-        <div class="engine-grid">
-          <div class="engine-item">
-            <div class="engine-title">
-              <span>🔀 进程内 Caddy 反代引擎</span>
-              <span class="pill run">内置运行中</span>
-            </div>
-            <div class="muted">
-              特性：纯内存原子零停机热重载、多域名/多路径分流、支持 WebSocket 双向流式透传。
-            </div>
-          </div>
-          <div class="engine-item">
-            <div class="engine-title">
-              <span>🌐 进程内 Cloudflare 隧道调度器</span>
-              <span class="pill run">协程托管中</span>
-            </div>
-            <div class="muted">
-              特性：每条隧道拥有专属独立 Context 生命周期，具备 panic 隔离兜底防护。
-            </div>
-          </div>
-        </div>
-      </div>
+      <div id="proxylist"></div>
+    </div>
+
+    <div class="card">
+      <h2>内存反代规则实时预览</h2>
+      <pre id="caddyfile" style="background:#0f172a;color:#94a3b8;padding:14px;border-radius:10px;font-size:12px;overflow-x:auto;">加载中...</pre>
     </div>
   </section>
 
@@ -424,23 +404,8 @@
       </div>
       <div class="btn-group">
         <button class="pri" onclick="addProxy()">保存并应用代理</button>
-        <button onclick="loadProxies()">查看现有代理</button>
+        <button onclick="switchTab('dash')">查看现有代理 (返回总览)</button>
       </div>
-    </div>
-  </section>
-
-  <!-- 4. 代理列表 (原第3项) -->
-  <section id="p-proxy" class="hide">
-    <div class="card">
-      <div class="card-head">
-        <h2>已生效的反代规则</h2>
-        <button class="sm" onclick="loadProxies()">刷新</button>
-      </div>
-      <div id="proxylist"></div>
-    </div>
-    <div class="card">
-      <h2>内存反代规则实时预览</h2>
-      <pre id="caddyfile" style="background:#0f172a;color:#94a3b8;padding:14px;border-radius:10px;font-size:12px;overflow-x:auto;">加载中...</pre>
     </div>
   </section>
 
@@ -488,22 +453,27 @@ async function api(path, opts = {}) {
 }
 
 // 选项卡切换逻辑 (支持 dash, tunnel, addproxy, proxy, proc)
-document.querySelectorAll(".tab-btn").forEach(t => t.onclick = () => {
-  document.querySelectorAll(".tab-btn").forEach(x => x.classList.remove("on"));
-  t.classList.add("on");
-  ["dash", "tunnel", "addproxy", "proxy", "proc"].forEach(k => {
-    const el = $("#p-" + k);
-    if (el) el.classList.toggle("hide", k !== t.dataset.t);
+function switchTab(tName) {
+  document.querySelectorAll(".tab-btn").forEach(x => {
+    x.classList.toggle("on", x.dataset.t === tName);
   });
-  if (t.dataset.t === "proc") loadProcs();
-  if (t.dataset.t === "proxy") { loadProxies(); loadCaddyfile(); }
-  if (t.dataset.t === "addproxy") fillTunnelSelect();
-  if (t.dataset.t === "tunnel") loadTunnels();
-});
+  ["dash", "tunnel", "addproxy", "proc"].forEach(k => {
+    const el = $("#p-" + k);
+    if (el) el.classList.toggle("hide", k !== tName);
+  });
+  if (tName === "dash") { loadAll(); loadProxies(); loadCaddyfile(); }
+  if (tName === "proc") loadProcs();
+  if (tName === "addproxy") fillTunnelSelect();
+  if (tName === "tunnel") loadTunnels();
+}
+
+document.querySelectorAll(".tab-btn").forEach(t => t.onclick = () => switchTab(t.dataset.t));
 
 // ── 总览统计 ──
 async function loadAll() {
   try {
+    loadProxies();
+    loadCaddyfile();
     const d = await api("/api/overview");
     state.caddy = d.caddy;
     state.overview = d;
