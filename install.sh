@@ -158,11 +158,23 @@ systemctl restart cunnel
 
 # 4. 等待进程自举申请临时隧道
 echo -e "${YELLOW}>>> 正在通过内置引擎自动申请 Cloudflare 临时安全隧道 (通常耗时 5~15 秒)...${PLAIN}"
+
+# 尝试从监听中获取实际绑定的面板守护端口 (排除当前配置的反代入口端口)
+INGRESS_P=$(grep -oE '"ingress_port":\s*[0-9]+' "${INSTALL_DIR}/data/state.json" 2>/dev/null | grep -oE '[0-9]+' || echo "2080")
+REAL_PORT=$(ss -tlnp 2>/dev/null | grep -E 'users:\(\("(cunnel|cfd-panel)"' | grep -oE '127\.0\.0\.1:[0-9]+' | cut -d: -f2 | grep -vE "^(${INGRESS_P}|80|2080)$" | head -n 1 || echo "8971")
+
 PANEL_TUNNEL_URL=""
 for i in {1..30}; do
     sleep 1
+    # 优先从本地在线 API 实时查询已建立的最新面板公网入口
+    API_URL=$(curl -s --connect-timeout 1 -m 2 "http://127.0.0.1:${REAL_PORT}/api/overview" 2>/dev/null | grep -oE '"panel_tunnel_url":"[^"]+"' | cut -d'"' -f4 || true)
+    if [ -n "$API_URL" ] && [[ "$API_URL" =~ ^https:// ]]; then
+        PANEL_TUNNEL_URL="$API_URL"
+        break
+    fi
+    # 兜底：从 state.json 的 tunnels 字段中获取最新非空域名
     if [ -f "${INSTALL_DIR}/data/state.json" ]; then
-        MATCH=$(grep -oE '[a-z0-9][a-z0-9-]*\.trycloudflare\.com' "${INSTALL_DIR}/data/state.json" 2>/dev/null | tail -n 1 || true)
+        MATCH=$(grep -oE '"domain":\s*"[a-z0-9][a-z0-9-]*\.trycloudflare\.com"' "${INSTALL_DIR}/data/state.json" 2>/dev/null | grep -oE '[a-z0-9][a-z0-9-]*\.trycloudflare\.com' | head -n 1 || true)
         if [ -n "$MATCH" ]; then
             PANEL_TUNNEL_URL="https://${MATCH}"
             break
@@ -170,17 +182,13 @@ for i in {1..30}; do
     fi
 done
 
-# 尝试从监听中获取实际绑定的面板守护端口 (排除当前配置的反代入口端口)
-INGRESS_P=$(grep -oE '"ingress_port":\s*[0-9]+' "${INSTALL_DIR}/data/state.json" 2>/dev/null | grep -oE '[0-9]+' || echo "2080")
-REAL_PORT=$(ss -tlnp 2>/dev/null | grep -E 'users:\(\("(cunnel|cfd-panel)"' | grep -oE '127\.0\.0\.1:[0-9]+' | cut -d: -f2 | grep -vE "^(${INGRESS_P}|80|2080)$" | head -n 1 || echo "8971")
-
 echo -e "${GREEN}====================================================${PLAIN}"
 echo -e "${GREEN}  🎉 Cunnel 安装成功并已在后台安全启动！${PLAIN}"
 echo -e "${GREEN}  安全特性: 仅监听 127.0.0.1，零公网明文端口暴露${PLAIN}"
 if [ -n "$PANEL_TUNNEL_URL" ]; then
-echo -e "${GREEN}  🚀 面板安全访问入口: ${PANEL_TUNNEL_URL}${PLAIN}"
+    echo -e "${GREEN}  🚀 面板安全访问入口: ${PANEL_TUNNEL_URL}${PLAIN}"
 else
-echo -e "${YELLOW}  🚀 临时隧道正在建立，请稍后查看: systemctl status cunnel${PLAIN}"
+    echo -e "${YELLOW}  🚀 临时安全隧道正在向 Cloudflare 申请最新域名，稍候可在终端输入 cunnel 查看${PLAIN}"
 fi
 echo -e "${GREEN}  本地监听地址: http://127.0.0.1:${REAL_PORT} (冲突自动顺延避让)${PLAIN}"
 echo -e "${CYAN:-$GREEN}  👉 提示: 在终端直接输入 cunnel 即可随时查看面板公网地址与连接信息！${PLAIN}"

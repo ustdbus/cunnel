@@ -112,30 +112,35 @@ fi
 systemctl restart "$SERVICE_NAME"
 
 # 5. 提示
-SERVER_IP=$(curl -s4m 3 https://api.ipify.org || curl -s4m 3 https://ifconfig.me || echo "你的VPS公网IP")
+INGRESS_P=$(grep -oE '"ingress_port":\s*[0-9]+' "${INSTALL_DIR}/data/state.json" 2>/dev/null | grep -oE '[0-9]+' || echo "2080")
+REAL_PORT=$(ss -tlnp 2>/dev/null | grep -E 'users:\(\("(cunnel|cfd-panel)"' | grep -oE '127\.0\.0\.1:[0-9]+' | cut -d: -f2 | grep -vE "^(${INGRESS_P}|80|2080)$" | head -n 1 || echo "8971")
 
 TUNNEL_URL=""
-for i in {1..20}; do
+for i in {1..25}; do
     sleep 1
+    # 优先从本地在线 API 实时查询已建立的最新面板公网入口
+    API_URL=$(curl -s --connect-timeout 1 -m 2 "http://127.0.0.1:${REAL_PORT}/api/overview" 2>/dev/null | grep -oE '"panel_tunnel_url":"[^"]+"' | cut -d'"' -f4 || true)
+    if [ -n "$API_URL" ] && [[ "$API_URL" =~ ^https:// ]]; then
+        TUNNEL_URL="$API_URL"
+        break
+    fi
+    # 兜底：从 state.json 的 tunnels 字段中获取最新非空域名
     if [ -f "${INSTALL_DIR}/data/state.json" ]; then
-        MATCH=$(grep -oE '[a-z0-9][a-z0-9-]*\.trycloudflare\.com' "${INSTALL_DIR}/data/state.json" 2>/dev/null | tail -n 1 || true)
+        MATCH=$(grep -oE '"domain":\s*"[a-z0-9][a-z0-9-]*\.trycloudflare\.com"' "${INSTALL_DIR}/data/state.json" 2>/dev/null | grep -oE '[a-z0-9][a-z0-9-]*\.trycloudflare\.com' | head -n 1 || true)
         if [ -n "$MATCH" ]; then
             TUNNEL_URL="https://${MATCH}"
-            if [ $i -ge 4 ]; then
-                break
-            fi
+            break
         fi
     fi
 done
-
-INGRESS_P=$(grep -oE '"ingress_port":\s*[0-9]+' "${INSTALL_DIR}/data/state.json" 2>/dev/null | grep -oE '[0-9]+' || echo "2080")
-REAL_PORT=$(ss -tlnp 2>/dev/null | grep -E 'users:\(\("(cunnel|cfd-panel)"' | grep -oE '127\.0\.0\.1:[0-9]+' | cut -d: -f2 | grep -vE "^(${INGRESS_P}|80|2080)$" | head -n 1 || echo "8971")
 
 echo -e "${GREEN}====================================================${PLAIN}"
 echo -e "${GREEN}  🎉 Cunnel 已成功更新至最新版并平滑重启！${PLAIN}"
 echo -e "${GREEN}  数据状态: 现有隧道、代理规则与配置文件已完好保留${PLAIN}"
 if [ -n "$TUNNEL_URL" ]; then
-echo -e "${GREEN}  🚀 面板安全访问入口: ${TUNNEL_URL}${PLAIN}"
+    echo -e "${GREEN}  🚀 面板安全访问入口: ${TUNNEL_URL}${PLAIN}"
+else
+    echo -e "${YELLOW}  🚀 临时安全隧道正在向 Cloudflare 申请最新域名，稍候可在终端输入 cunnel 查看${PLAIN}"
 fi
 echo -e "${GREEN}  本地监听地址: http://127.0.0.1:${REAL_PORT} (仅本地安全回环，冲突自动避让)${PLAIN}"
 echo -e "${CYAN:-$GREEN}  👉 提示: 在终端直接输入 cunnel 即可随时查看面板公网地址与连接信息！${PLAIN}"
