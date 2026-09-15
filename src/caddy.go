@@ -114,10 +114,12 @@ func newReverseProxy(port int, stripPath string, incomingHost string) *httputil.
 		}
 		// 上游 Host 统一设置为本地目标 (127.0.0.1:port)，确保本地服务主机安全检查 (isIP/Loopback) 100% 通过
 		req.Host = targetURL.Host
-		// 若请求包含 Origin，同步改写为本地上游目标，消除 Next.js/WebUI 等框架的同源跨域安全拦截
-		if req.Header.Get("Origin") != "" {
-			req.Header.Set("Origin", fmt.Sprintf("http://127.0.0.1:%d", port))
-		}
+		// 剥离可能触发 Next.js/WebUI 等框架跨站误判的头部 (如 HTTPS->HTTP 转换时的 Origin 协议不一致、Sec-Fetch-Site 等)
+		// 从而确保本地 Node 服务无条件信任由 cunnel 安全代理进入的请求
+		req.Header.Del("Origin")
+		req.Header.Del("Sec-Fetch-Site")
+		req.Header.Del("Sec-Fetch-Mode")
+		req.Header.Del("Sec-Fetch-Dest")
 		if stripPath != "" && stripPath != "/" {
 			if strings.HasPrefix(req.URL.Path, stripPath) {
 				req.URL.Path = strings.TrimPrefix(req.URL.Path, stripPath)
