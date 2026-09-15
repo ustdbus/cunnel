@@ -358,6 +358,14 @@ func registerRoutes(mux *http.ServeMux) {
 			}
 		}
 
+		hasDirectPanelTunnel := false
+		for _, tu := range store.Tunnels {
+			if tu.Port == actualPort && tu.Status == "running" && tu.Domain != "" {
+				hasDirectPanelTunnel = true
+				break
+			}
+		}
+
 		rows := make([]row, 0, len(store.Proxies))
 		for _, p := range store.Proxies {
 			t := store.FindTunnel(p.TunnelID)
@@ -365,7 +373,7 @@ func registerRoutes(mux *http.ServeMux) {
 			if t != nil {
 				tn, ts, tp = t.Name, t.Status, t.Port
 			}
-			isLocked := (p.UpstreamPort == actualPort && cunnelProxyCount <= 1)
+			isLocked := (!hasDirectPanelTunnel && p.UpstreamPort == actualPort && cunnelProxyCount <= 1)
 			rows = append(rows, row{
 				Proxy:        p,
 				TunnelName:   tn,

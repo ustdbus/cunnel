@@ -149,11 +149,19 @@ func (e *InProcessProxyEngine) SyncListeners(tunnels []*Tunnel, proxies []*Proxy
 		tunnelPortMap[t.ID] = t.Port
 	}
 
-	// 将所有代理规则按打入端口归类
+	// 将真正需要反向代理路由的规则按打入端口归类 (排除纯直通规则，避免端口重复绑定冲突)
 	portRules := make(map[int][]*Proxy)
 	for _, p := range proxies {
 		inPort := tunnelPortMap[p.TunnelID]
 		if inPort <= 0 {
+			continue
+		}
+		path := strings.TrimSpace(p.Path)
+		if path == "" {
+			path = "/"
+		}
+		// 若转发目标端口与隧道打入端口完全一致且为根路径，属于纯直通模式，流量直接打入本地服务，无需且不能重复监听该端口
+		if inPort == p.UpstreamPort && path == "/" {
 			continue
 		}
 		portRules[inPort] = append(portRules[inPort], p)

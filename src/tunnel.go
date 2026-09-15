@@ -435,6 +435,9 @@ func (s *Store) createProxy(req CreateProxyReq) (*Proxy, error) {
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
+	if req.UpstreamPort == t.Port && path == "/" {
+		return nil, fmt.Errorf("该隧道回源打入端口已是 %d，流量已自动直通本地服务，无需额外添加反代规则", t.Port)
+	}
 
 	s.mu.Lock()
 	for _, p := range s.Proxies {
@@ -475,13 +478,18 @@ func (s *Store) deleteProxy(id string) error {
 			cunnelProxyCount++
 		}
 	}
-	if target == nil {
-		return fmt.Errorf("代理规则不存在")
+	// 检查是否有任何运行中的隧道直接打入面板端口 (已具备直通公网访问能力)
+	hasDirectPanelTunnel := false
+	for _, t := range s.Tunnels {
+		if t.Port == actualPort && t.Status == "running" && t.Domain != "" {
+			hasDirectPanelTunnel = true
+			break
+		}
 	}
 
-	// 安全锁定保护：若该规则指向 Cunnel 自身面板端口，且是唯一的面板代理规则，则锁定禁止移除
-	if target.UpstreamPort == actualPort && cunnelProxyCount <= 1 {
-		return fmt.Errorf("操作被阻止：该规则是当前 Cunnel 管理面板唯一的外部访问入口，已受锁定保护；请在配置其他指向面板的隧道后再移除")
+	// 安全锁定保护：仅当没有直通面板的活跃隧道，且该规则是唯一的反代访问面板入口时，才锁定禁止移除
+	if !hasDirectPanelTunnel && target.UpstreamPort == actualPort && cunnelProxyCount <= 1 {
+		return fmt.Errorf("操作被阻止：当前没有直通面板的活跃隧道，且该规则是管理面板唯一的访问入口，已受锁定保护")
 	}
 
 	keep := s.Proxies[:0]

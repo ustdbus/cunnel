@@ -49,7 +49,7 @@ func handleCLIIfRequested() bool {
 			printCLIHelp()
 			return true
 		case "-v", "--version", "version":
-			fmt.Printf("Cunnel v1.3.0 (Caddy & Cloudflare Tunnel Single-Process Platform)\n")
+			fmt.Printf("Cunnel v1.3.1 (Caddy & Cloudflare Tunnel Single-Process Platform)\n")
 			return true
 		}
 	}
@@ -179,8 +179,12 @@ func printConnectInfo() {
 				if upPort == panelPort {
 					desc = "Cunnel 控制面板"
 				}
-				if tunPort > 0 {
-					fmt.Printf("  * %shttps://%s%s%s  [隧道打入: %s%d%s] ==> %s127.0.0.1:%d%s (%s)\n",
+				if tunPort > 0 && tunPort == upPort && (path == "/" || path == "") {
+					fmt.Printf("  * %shttps://%s%s%s  ==>  %s127.0.0.1:%d%s (%s · 直通穿透)\n",
+						colorCyan, domain, path, colorReset,
+						colorYellow, upPort, colorReset, desc)
+				} else if tunPort > 0 {
+					fmt.Printf("  * %shttps://%s%s%s  [隧道打入: %s%d%s] ==> %s127.0.0.1:%d%s (%s · 动态反代)\n",
 						colorCyan, domain, path, colorReset,
 						colorYellow, tunPort, colorReset,
 						colorYellow, upPort, colorReset, desc)

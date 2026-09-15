@@ -543,7 +543,7 @@ async function loadTunnels() {
       $("#tunnels").innerHTML = `<div class="empty-box"><div class="empty-icon">🌐</div><div>暂无运行中的隧道，请在上方添加</div></div>`;
       return;
     }
-    const proxiedIDs = new Set((state.proxies || []).map(p => p.tunnel_id));
+    const proxiedIDs = new Set((state.proxies || []).filter(p => p.upstream_port !== p.tunnel_port || (p.path && p.path !== "/")).map(p => p.tunnel_id));
     $("#tunnels").innerHTML = `<div class="table-responsive"><table><thead><tr>
       <th>标识</th><th>类型</th><th>域名 / URL</th><th>回源/打入端口</th><th>架构归属</th><th>运行状态</th><th>操作</th>
       </tr></thead><tbody>${state.tunnels.map(t => {
@@ -628,17 +628,24 @@ async function loadProxies() {
     state.proxies = rows;
     $("#proxylist").innerHTML = rows.length ? `<div class="table-responsive"><table><thead><tr>
       <th>外部访问域名</th><th>URL 路由路径</th><th>隧道打入端口</th><th>转发目标端口</th><th>所属隧道</th><th>状态</th><th>操作</th>
-      </tr></thead><tbody>${rows.map(p => `<tr>
+      </tr></thead><tbody>${rows.map(p => {
+        const isPass = (p.tunnel_port && p.tunnel_port === p.upstream_port && (!p.path || p.path === "/"));
+        let statusBadge = p.tunnel_status === "running" ? '<span class="pill run">反代监听中</span>' : '<span class="pill stop">隧道已停</span>';
+        if (isPass) {
+          statusBadge = '<span class="pill" style="background:#f1f5f9;color:#475569;">直通穿透</span>';
+        }
+        return `<tr>
         <td><code>${esc(p.domain)}</code></td>
         <td><code>${esc(p.path)}</code></td>
         <td><span style="font-weight:600;color:var(--pri)">127.0.0.1:${p.tunnel_port || "-"}</span></td>
         <td><span style="font-weight:600;color:var(--ok)">127.0.0.1:${p.upstream_port}</span>${p.locked ? ` <span class="pill" style="font-size:11px;background:#eff6ff;color:var(--pri)">核心面板</span>` : ''}</td>
         <td><code>${esc(p.tunnel_name)}</code></td>
-        <td>${p.tunnel_status === "running" ? '<span class="pill run">反代监听中</span>' : '<span class="pill stop">隧道已停</span>'}</td>
+        <td>${statusBadge}</td>
         <td>${p.locked 
           ? `<span class="pill" style="background:#f1f5f9;color:#64748b;border:1px solid #cbd5e1;cursor:help;font-size:12px;padding:3px 10px;" title="核心保护：当前为唯一的面板访问入口。当有其他隧道也分流到面板时方可解锁移除。">🔒 保护锁定</span>` 
           : `<button class="sm danger" onclick="delProxy('${p.id}')">移除</button>`}</td>
-      </tr>`).join("")}</tbody></table></div>` : `<div class="empty-box"><div class="empty-icon">🔀</div><div>暂无反代规则 (当前所有隧道流量均直接穿透打入本地端口)</div></div>`;
+      </tr>`;
+      }).join("")}</tbody></table></div>` : `<div class="empty-box"><div class="empty-icon">🔀</div><div>暂无反代规则 (当前所有隧道流量均直接穿透打入本地端口)</div></div>`;
   } catch (e) { toast("加载代理失败: " + e.message, false); }
 }
 
