@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -128,6 +130,26 @@ func newReverseProxy(port int, stripPath string, incomingHost string) *httputil.
 				}
 			}
 		}
+	}
+	// 针对 SSE (Server-Sent Events) 流式响应，增强与 Cloudflare 隧道边缘的实时推送兼容性
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		ct := resp.Header.Get("Content-Type")
+		if strings.Contains(strings.ToLower(ct), "text/event-stream") {
+			resp.Header.Set("X-Accel-Buffering", "no")
+			resp.Header.Set("Cache-Control", "no-cache, no-transform")
+			// Cloudflare 边缘代理默认会对长连接的小数据包 (<4KB) 开启缓冲区，
+			// 在数据流开头注入 4KB 的标准 SSE 注释行 (: padding\n\n)，
+			// 既不影响任何前端逻辑（EventSource 规范会直接忽略以冒号开头的注释），又能瞬间冲刷 Cloudflare 缓冲区，实现零延迟推流！
+			padding := []byte(": " + strings.Repeat(" ", 4096) + "\n\n")
+			resp.Body = struct {
+				io.Reader
+				io.Closer
+			}{
+				Reader: io.MultiReader(bytes.NewReader(padding), resp.Body),
+				Closer: resp.Body,
+			}
+		}
+		return nil
 	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		log.Printf("[InProcess-Proxy] 转发至 127.0.0.1:%d 出错: %v", port, err)
