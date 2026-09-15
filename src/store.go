@@ -37,29 +37,24 @@ type Proxy struct {
 
 // Store 全局持久化状态
 type Store struct {
-	mu          sync.Mutex       `json:"-"`
-	Path        string           `json:"-"`
-	Tunnels     []*Tunnel        `json:"tunnels"`
-	Proxies     []*Proxy         `json:"proxies"`
-	IngressPort int              `json:"ingress_port"` // caddy 监听端口(cloudflared 回源到它)
-	procs       map[string]*proc `json:"-"`
+	mu      sync.Mutex       `json:"-"`
+	Path    string           `json:"-"`
+	Tunnels []*Tunnel        `json:"tunnels"`
+	Proxies []*Proxy         `json:"proxies"`
+	procs   map[string]*proc `json:"-"`
 }
 
 func NewStore(path string) (*Store, error) {
 	s := &Store{
-		Path:        path,
-		Tunnels:     []*Tunnel{},
-		Proxies:     []*Proxy{},
-		IngressPort: 2080,
-		procs:       map[string]*proc{},
+		Path:    path,
+		Tunnels: []*Tunnel{},
+		Proxies: []*Proxy{},
+		procs:   map[string]*proc{},
 	}
 	if b, err := os.ReadFile(path); err == nil && len(b) > 0 {
 		if err := json.Unmarshal(b, s); err != nil {
 			return nil, fmt.Errorf("config %s 解析失败: %w", path, err)
 		}
-	}
-	if s.IngressPort <= 0 || s.IngressPort == 8971 || s.IngressPort == 80 {
-		s.IngressPort = 2080
 	}
 	if s.procs == nil {
 		s.procs = map[string]*proc{}

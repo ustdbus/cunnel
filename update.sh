@@ -112,8 +112,9 @@ fi
 systemctl restart "$SERVICE_NAME"
 
 # 5. 提示
-INGRESS_P=$(grep -oE '"ingress_port":\s*[0-9]+' "${INSTALL_DIR}/data/state.json" 2>/dev/null | grep -oE '[0-9]+' || echo "2080")
-REAL_PORT=$(ss -tlnp 2>/dev/null | grep -E 'users:\(\("(cunnel|cfd-panel)"' | grep -oE '127\.0\.0\.1:[0-9]+' | cut -d: -f2 | grep -vE "^(${INGRESS_P}|80|2080)$" | head -n 1 || echo "8971")
+# 尝试从监听中获取实际绑定的面板守护端口 (默认 8971 起始避让)
+REAL_PORT=$(ss -tlnp 2>/dev/null | grep -E 'users:\(\("(cunnel|cfd-panel)"' | grep -oE '127\.0\.0\.1:[0-9]+' | cut -d: -f2 | grep -E "^(897[1-9]|898[0-9]|899[0-9])$" | head -n 1 || true)
+[ -z "$REAL_PORT" ] && REAL_PORT="8971"
 
 TUNNEL_URL=""
 for i in {1..25}; do

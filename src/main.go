@@ -74,15 +74,8 @@ func runServer() {
 		}
 	}
 
-	// 支持通过环境变量预置反代入口端口
-	if envIngress := os.Getenv("CUNNEL_INGRESS_PORT"); envIngress != "" {
-		if ip, ierr := strconv.Atoi(envIngress); ierr == nil && ip > 0 && ip <= 65535 {
-			store.IngressPort = ip
-		}
-	}
-
-	// 智能避让：如果端口被占用，自动递增寻找可用端口，同时避开反代入口端口
-	ln, listenAddr, realPort, err := listenWithFallback(rawHost, prefPort, store.IngressPort)
+	// 智能避让：如果端口被占用，自动递增寻找可用端口
+	ln, listenAddr, realPort, err := listenWithFallback(rawHost, prefPort)
 	if err != nil {
 		log.Fatalf("启动监听失败 (8971~8999 端口均不可用): %v", err)
 	}
@@ -140,12 +133,9 @@ func runServer() {
 	}
 }
 
-// listenWithFallback 尝试在首选端口监听，若被占用则自动向后顺延，同时避开指定保留端口
-func listenWithFallback(host string, startPort int, avoidPort int) (net.Listener, string, int, error) {
+// listenWithFallback 尝试在首选端口监听，若被占用则自动向后顺延
+func listenWithFallback(host string, startPort int) (net.Listener, string, int, error) {
 	for port := startPort; port < startPort+50; port++ {
-		if port == avoidPort {
-			continue // 严格避开反代入口端口
-		}
 		addr := fmt.Sprintf("%s:%d", host, port)
 		ln, err := net.Listen("tcp", addr)
 		if err == nil {
@@ -246,42 +236,8 @@ func registerRoutes(mux *http.ServeMux) {
 			"proxy_count":      len(store.Proxies),
 			"panel_dir":        baseDir,
 			"panel_port":       actualPort,
-			"ingress_port":     store.IngressPort,
 			"panel_tunnel_url": panelTunnelURL,
 		}, nil
-	}))
-
-	// 反代入口端口查询与动态配置
-	mux.HandleFunc("/api/ingress", wrap(func(w http.ResponseWriter, r *http.Request) (any, error) {
-		switch r.Method {
-		case http.MethodGet:
-			return map[string]any{
-				"ingress_port": store.IngressPort,
-			}, nil
-		case http.MethodPost:
-			var req struct {
-				Port int `json:"port"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				return nil, fmt.Errorf("请求格式错误: %w", err)
-			}
-			if req.Port < 1 || req.Port > 65535 {
-				return nil, fmt.Errorf("端口号超出合法范围 (1~65535)")
-			}
-			if req.Port == actualPort {
-				return nil, fmt.Errorf("反代入口端口不能与面板主端口 (%d) 相同", actualPort)
-			}
-			realPort, err := store.setIngressPort(req.Port)
-			if err != nil {
-				return nil, fmt.Errorf("更新反代入口端口失败: %w", err)
-			}
-			return map[string]any{
-				"ingress_port": realPort,
-				"message":      fmt.Sprintf("反代入口端口已更新至 %d 并已完成引擎热重载", realPort),
-			}, nil
-		default:
-			return nil, fmt.Errorf("不支持的方法")
-		}
 	}))
 
 	// 功能一:添加隧道
@@ -390,6 +346,7 @@ func registerRoutes(mux *http.ServeMux) {
 		type row struct {
 			*Proxy
 			TunnelName   string `json:"tunnel_name"`
+			TunnelPort   int    `json:"tunnel_port"`
 			TunnelStatus string `json:"tunnel_status"`
 			Locked       bool   `json:"locked"`
 		}
@@ -404,14 +361,15 @@ func registerRoutes(mux *http.ServeMux) {
 		rows := make([]row, 0, len(store.Proxies))
 		for _, p := range store.Proxies {
 			t := store.FindTunnel(p.TunnelID)
-			tn, ts := "-", "-"
+			tn, ts, tp := "-", "-", 0
 			if t != nil {
-				tn, ts = t.Name, t.Status
+				tn, ts, tp = t.Name, t.Status, t.Port
 			}
 			isLocked := (p.UpstreamPort == actualPort && cunnelProxyCount <= 1)
 			rows = append(rows, row{
 				Proxy:        p,
 				TunnelName:   tn,
+				TunnelPort:   tp,
 				TunnelStatus: ts,
 				Locked:       isLocked,
 			})

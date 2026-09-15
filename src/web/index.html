@@ -354,18 +354,15 @@
           <input id="t-token" placeholder="eyJhIjoi..." />
         </div>
         <div>
-          <div style="display:flex;justify-content:space-between;align-items:center;">
-            <label style="margin-bottom:0;">回源端口 (CF 流量打入端口)</label>
-            <a href="javascript:void(0)" onclick="fillIngressPort()" style="font-size:11px;color:var(--pri);text-decoration:none;font-weight:600;">⚡ 填入反代入口</a>
-          </div>
-          <input id="t-port" type="number" placeholder="留空默认 8080" style="margin-top:6px;" />
+          <label>回源端口 (CF 流量打入端口)</label>
+          <input id="t-port" type="number" placeholder="例如 2345 (留空默认 8080)" />
         </div>
       </div>
       <div class="muted" style="margin-top: 12px;line-height:1.6;">
-        💡 <b>回源说明</b>：此端口为 Cloudflare 隧道公网流量在本地打入的目标端口。<br/>
-        • <b>直连模式（推荐单服务）</b>：填入本机实际服务端口（如 8080 或面板端口），流量穿透直达服务；<br/>
-        • <b>反代模式（多路径/多域名）</b>：点击右上角填入反代入口（如 2080），后续可在“添加代理”中配置 <code>/api</code> 等高级分流。<br/>
-        • 固定域名隧道：请在 Cloudflare Zero Trust 控制台添加 Hostname Service 时将 URL 端口与此端口保持一致。
+        💡 <b>回源说明</b>：此端口为 Cloudflare 隧道公网流量在本地打入的目标端口（例如 2345）。<br/>
+        • <b>直通模式</b>：若本地已有服务直接运行在该端口，流量穿透直达；<br/>
+        • <b>反代模式</b>：若需将流量分流或转发至其他内网端口（如 4567），可在“添加代理”中选择该隧道并配置转发目标。<br/>
+        • 固定域名隧道：请在 Cloudflare Zero Trust 控制台配置 Public Hostname 时将 Service URL 端口与此端口保持一致。
       </div>
       <div class="btn-group">
         <button class="pri" onclick="addTunnel()">立即创建隧道</button>
@@ -514,45 +511,12 @@ async function loadAll() {
       <div class="stat-card">
         <div class="stat-label">生效代理规则</div>
         <div class="stat-val">${d.proxy_count}</div>
-        <div class="stat-sub">内存路由表</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label" style="display:flex;justify-content:space-between;align-items:center;">
-          <span>反代入口 (Ingress)</span>
-          <a href="javascript:void(0)" onclick="editIngressPort(${d.ingress_port || 2080})" style="font-size:12px;color:var(--pri);text-decoration:none;font-weight:600;">⚙ 修改</a>
-        </div>
-        <div class="stat-val" style="font-size:18px;color:var(--pri)">127.0.0.1:${d.ingress_port || 2080}</div>
-        <div class="stat-sub">多域名分流入口 (冲突智能避让)</div>
+        <div class="stat-sub">多端口按需反代</div>
       </div>
     `;
     const portStr = d.panel_port ? ` · 本地监听端口: :${d.panel_port}` : "";
     $("#subtitle").textContent = "运行目录: " + d.panel_dir + " · 单进程架构" + portStr;
   } catch (e) { toast("加载概览失败: " + e.message, false); }
-}
-
-function fillIngressPort() {
-  const p = (state.overview && state.overview.ingress_port) || 2080;
-  $("#t-port").value = p;
-  toast(`已填入当前反代入口端口 :${p}`);
-}
-
-async function editIngressPort(currentPort) {
-  const pStr = prompt(`请输入新的反代引擎入口端口 (1~65535):\n建议使用高位端口 (如 2080、8080 等)。若冲突系统将自动避让。`, currentPort);
-  if (!pStr) return;
-  const p = parseInt(pStr.trim(), 10);
-  if (!p || p < 1 || p > 65535) {
-    return toast("请输入合法的端口号 (1~65535)", false);
-  }
-  try {
-    const res = await api("/api/ingress", {
-      method: "POST",
-      body: { port: p }
-    });
-    toast(res.message || `反代入口端口已成功切换至 ${res.ingress_port}`);
-    loadAll();
-  } catch (e) {
-    toast("切换端口失败: " + e.message, false);
-  }
 }
 
 // ── 隧道逻辑 ──
@@ -579,11 +543,11 @@ async function loadTunnels() {
       $("#tunnels").innerHTML = `<div class="empty-box"><div class="empty-icon">🌐</div><div>暂无运行中的隧道，请在上方添加</div></div>`;
       return;
     }
-    const ingressPort = (state.overview && state.overview.ingress_port) || 2080;
+    const proxiedIDs = new Set((state.proxies || []).map(p => p.tunnel_id));
     $("#tunnels").innerHTML = `<div class="table-responsive"><table><thead><tr>
       <th>标识</th><th>类型</th><th>域名 / URL</th><th>回源/打入端口</th><th>架构归属</th><th>运行状态</th><th>操作</th>
       </tr></thead><tbody>${state.tunnels.map(t => {
-        const isIngress = t.port === ingressPort;
+        const hasProxy = proxiedIDs.has(t.id);
         return `
       <tr>
         <td><code>${esc(t.name)}</code></td>
@@ -591,8 +555,8 @@ async function loadTunnels() {
         <td>${t.domain ? `<a href="https://${esc(t.domain)}" target="_blank" style="color:var(--pri);font-weight:600;text-decoration:none;">${esc(t.domain)} ↗</a>` : '<span class="muted">获取中…</span>'}</td>
         <td>
           <code>${t.port}</code>
-          ${isIngress 
-            ? '<span class="pill" style="font-size:10px;background:#e0e7ff;color:#4338ca;margin-left:4px;">分流反代</span>' 
+          ${hasProxy 
+            ? '<span class="pill" style="font-size:10px;background:#e0e7ff;color:#4338ca;margin-left:4px;">反代中</span>' 
             : '<span class="pill" style="font-size:10px;background:#f1f5f9;color:#475569;margin-left:4px;">直通</span>'}
         </td>
         <td><span class="muted">PID ${t.pid || "-"} (内存协程)</span></td>
@@ -636,7 +600,7 @@ function fillTunnelSelect() {
   const list = state.tunnels.filter(t => t.domain);
   const old = sel.value;
   sel.innerHTML = list.length
-    ? list.map(t => `<option value="${t.id}">${esc(t.domain)} (${t.mode === "quick" ? "临时" : "固定"})</option>`).join("")
+    ? list.map(t => `<option value="${t.id}">${esc(t.domain)} (打入端口: ${t.port})</option>`).join("")
     : `<option value="">暂无可用隧道域名 (请先创建隧道)</option>`;
   if (old) sel.value = old;
 }
@@ -661,18 +625,20 @@ async function loadProxies() {
   try {
     const d = await api("/api/caddy/proxies");
     const rows = d.proxies || [];
+    state.proxies = rows;
     $("#proxylist").innerHTML = rows.length ? `<div class="table-responsive"><table><thead><tr>
-      <th>外部访问域名</th><th>URL 路由路径</th><th>转发本地端口</th><th>所属隧道</th><th>状态</th><th>操作</th>
+      <th>外部访问域名</th><th>URL 路由路径</th><th>隧道打入端口</th><th>转发目标端口</th><th>所属隧道</th><th>状态</th><th>操作</th>
       </tr></thead><tbody>${rows.map(p => `<tr>
         <td><code>${esc(p.domain)}</code></td>
         <td><code>${esc(p.path)}</code></td>
-        <td><span style="font-weight:600;color:var(--pri)">127.0.0.1:${p.upstream_port}</span>${p.locked ? ` <span class="pill" style="font-size:11px;background:#eff6ff;color:var(--pri)">核心面板</span>` : ''}</td>
+        <td><span style="font-weight:600;color:var(--pri)">127.0.0.1:${p.tunnel_port || "-"}</span></td>
+        <td><span style="font-weight:600;color:var(--ok)">127.0.0.1:${p.upstream_port}</span>${p.locked ? ` <span class="pill" style="font-size:11px;background:#eff6ff;color:var(--pri)">核心面板</span>` : ''}</td>
         <td><code>${esc(p.tunnel_name)}</code></td>
-        <td>${p.tunnel_status === "running" ? '<span class="pill run">活跃监听</span>' : '<span class="pill stop">隧道已停</span>'}</td>
+        <td>${p.tunnel_status === "running" ? '<span class="pill run">反代监听中</span>' : '<span class="pill stop">隧道已停</span>'}</td>
         <td>${p.locked 
           ? `<span class="pill" style="background:#f1f5f9;color:#64748b;border:1px solid #cbd5e1;cursor:help;font-size:12px;padding:3px 10px;" title="核心保护：当前为唯一的面板访问入口。当有其他隧道也分流到面板时方可解锁移除。">🔒 保护锁定</span>` 
           : `<button class="sm danger" onclick="delProxy('${p.id}')">移除</button>`}</td>
-      </tr>`).join("")}</tbody></table></div>` : `<div class="empty-box"><div class="empty-icon">🔀</div><div>暂无代理规则，请切换到“添加代理”进行配置</div></div>`;
+      </tr>`).join("")}</tbody></table></div>` : `<div class="empty-box"><div class="empty-icon">🔀</div><div>暂无反代规则 (当前所有隧道流量均直接穿透打入本地端口)</div></div>`;
   } catch (e) { toast("加载代理失败: " + e.message, false); }
 }
 

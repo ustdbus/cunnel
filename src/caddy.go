@@ -14,7 +14,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -40,53 +39,29 @@ type ProxyRoute struct {
 	Proxy        *httputil.ReverseProxy
 }
 
-type InProcessProxyEngine struct {
-	mu          sync.RWMutex
-	routes      map[string][]*ProxyRoute // domain -> list of routes (sorted by path length desc)
-	server      *http.Server
-	healthSrv   *http.Server
-	ingressPort int
-	running     int32
+type PortServer struct {
+	mu     sync.RWMutex
+	port   int
+	server *http.Server
+	ln     net.Listener
+	routes []*ProxyRoute
 }
 
-var globalProxyEngine = &InProcessProxyEngine{
-	routes: make(map[string][]*ProxyRoute),
-}
-
-func (e *InProcessProxyEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (ps *PortServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/health" {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 		return
 	}
 
-	host := r.Host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	host = strings.ToLower(strings.TrimSpace(host))
-
-	e.mu.RLock()
-	routes, ok := e.routes[host]
-	e.mu.RUnlock()
-
-	if !ok || len(routes) == 0 {
-		// 回退匹配：查找默认匹配
-		e.mu.RLock()
-		defaultRoutes := e.routes["*"]
-		e.mu.RUnlock()
-		if len(defaultRoutes) > 0 {
-			routes = defaultRoutes
-		} else {
-			http.NotFound(w, r)
-			return
-		}
-	}
-
 	reqPath := r.URL.Path
 	if reqPath == "" {
 		reqPath = "/"
 	}
+
+	ps.mu.RLock()
+	routes := ps.routes
+	ps.mu.RUnlock()
 
 	// 匹配最长前缀
 	for _, route := range routes {
@@ -97,6 +72,15 @@ func (e *InProcessProxyEngine) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	}
 
 	http.NotFound(w, r)
+}
+
+type InProcessProxyEngine struct {
+	mu      sync.Mutex
+	servers map[int]*PortServer // port -> running server
+}
+
+var globalProxyEngine = &InProcessProxyEngine{
+	servers: make(map[int]*PortServer),
 }
 
 func newReverseProxy(port int, stripPath string, incomingHost string) *httputil.ReverseProxy {
@@ -158,199 +142,153 @@ func newReverseProxy(port int, stripPath string, incomingHost string) *httputil.
 	return proxy
 }
 
-// UpdateRoutes 内存中原子更新路由表
-func (e *InProcessProxyEngine) UpdateRoutes(proxies []*Proxy) {
-	newRoutes := make(map[string][]*ProxyRoute)
+// SyncListeners 扫描当前所有代理规则，并在关联隧道的回源打入端口上动态启停反代监听
+func (e *InProcessProxyEngine) SyncListeners(tunnels []*Tunnel, proxies []*Proxy) {
+	tunnelPortMap := make(map[string]int)
+	for _, t := range tunnels {
+		tunnelPortMap[t.ID] = t.Port
+	}
 
+	// 将所有代理规则按打入端口归类
+	portRules := make(map[int][]*Proxy)
 	for _, p := range proxies {
-		d := strings.ToLower(strings.TrimSpace(p.Domain))
-		if d == "" || p.UpstreamPort <= 0 {
+		inPort := tunnelPortMap[p.TunnelID]
+		if inPort <= 0 {
 			continue
 		}
-		path := strings.TrimSpace(p.Path)
-		if path == "" {
-			path = "/"
-		}
-		if path != "/" && !strings.HasPrefix(path, "/") {
-			path = "/" + path
-		}
-
-		stripPath := ""
-		if path != "/" {
-			stripPath = path
-		}
-
-		incomingHost := ""
-		if d != "*" {
-			incomingHost = d
-		}
-		route := &ProxyRoute{
-			Path:         path,
-			StripPrefix:  stripPath,
-			UpstreamPort: p.UpstreamPort,
-			Proxy:        newReverseProxy(p.UpstreamPort, stripPath, incomingHost),
-		}
-		newRoutes[d] = append(newRoutes[d], route)
-	}
-
-	// 每域名内路径按长度降序排序（保证最长前缀优先命中）
-	for d := range newRoutes {
-		list := newRoutes[d]
-		sort.SliceStable(list, func(i, j int) bool {
-			return len(list[i].Path) > len(list[j].Path)
-		})
-	}
-
-	e.mu.Lock()
-	e.routes = newRoutes
-	e.mu.Unlock()
-}
-
-// EnsureRunning 确保反代服务在后台监听，并支持端口冲突自动递增避让
-func (e *InProcessProxyEngine) EnsureRunning(preferredPort int) (int, error) {
-	if preferredPort <= 0 {
-		preferredPort = 2080
-	}
-
-	if atomic.LoadInt32(&e.running) == 1 && e.ingressPort == preferredPort {
-		return preferredPort, nil
+		portRules[inPort] = append(portRules[inPort], p)
 	}
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	// 如果已经在不同端口运行，先优雅关闭旧监听器
-	if e.server != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_ = e.server.Shutdown(ctx)
-		cancel()
-		e.server = nil
+	// 1. 关闭已无代理规则的端口监听
+	for p, ps := range e.servers {
+		if _, stillNeeded := portRules[p]; !stillNeeded {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_ = ps.server.Shutdown(ctx)
+			cancel()
+			delete(e.servers, p)
+			log.Printf("[ProxyEngine] 隧道已无反代规则，已释放端口 127.0.0.1:%d 的反代监听", p)
+		}
 	}
 
-	var ln net.Listener
-	var chosenPort int
-	var err error
-
-	for p := preferredPort; p < preferredPort+50; p++ {
-		if p == actualPort {
-			continue // 严格避开面板自身守护端口
-		}
-		addr := fmt.Sprintf("127.0.0.1:%d", p)
-		ln, err = net.Listen("tcp", addr)
-		if err == nil {
-			chosenPort = p
-			if p != preferredPort {
-				log.Printf("[PortGuard] 反代入口端口 %d 被占用，已自动避让切换至空闲端口 %d", preferredPort, p)
+	// 2. 更新或新建所需端口的监听
+	for inPort, plist := range portRules {
+		// 构建该端口的路由列表
+		var routes []*ProxyRoute
+		for _, p := range plist {
+			path := strings.TrimSpace(p.Path)
+			if path == "" {
+				path = "/"
 			}
-			break
-		}
-	}
-
-	if ln == nil {
-		return 0, fmt.Errorf("内置反代引擎在 %d~%d 范围内均无法找到空闲端口: %w", preferredPort, preferredPort+49, err)
-	}
-
-	actualAddr := fmt.Sprintf("127.0.0.1:%d", chosenPort)
-	srv := &http.Server{
-		Addr:              actualAddr,
-		Handler:           e,
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-
-	e.server = srv
-	e.ingressPort = chosenPort
-	atomic.StoreInt32(&e.running, 1)
-
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("[ProxyEngine] 异常恢复: %v", r)
+			if path != "/" && !strings.HasPrefix(path, "/") {
+				path = "/" + path
 			}
-		}()
-		log.Printf("内置反代引擎已启动 (In-Process): http://%s", actualAddr)
-		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
-			log.Printf("[ProxyEngine] 监听异常退出: %v", err)
-			atomic.StoreInt32(&e.running, 0)
+			stripPath := ""
+			if path != "/" {
+				stripPath = path
+			}
+			incomingHost := ""
+			if p.Domain != "*" && p.Domain != "" {
+				incomingHost = p.Domain
+			}
+			routes = append(routes, &ProxyRoute{
+				Path:         path,
+				StripPrefix:  stripPath,
+				UpstreamPort: p.UpstreamPort,
+				Proxy:        newReverseProxy(p.UpstreamPort, stripPath, incomingHost),
+			})
 		}
-	}()
+		// 按路径长度降序排序（最长前缀优先匹配）
+		sort.SliceStable(routes, func(i, j int) bool {
+			return len(routes[i].Path) > len(routes[j].Path)
+		})
 
-	return chosenPort, nil
+		// 若已有运行中的监听服务器，热重载其路由
+		if existing, ok := e.servers[inPort]; ok {
+			existing.mu.Lock()
+			existing.routes = routes
+			existing.mu.Unlock()
+			continue
+		}
+
+		// 启动新端口监听
+		ps := &PortServer{
+			port:   inPort,
+			routes: routes,
+		}
+		addr := fmt.Sprintf("127.0.0.1:%d", inPort)
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			log.Printf("[ProxyEngine] 警告: 无法在隧道打入端口 %d 启动反向代理监听: %v", inPort, err)
+			continue
+		}
+		srv := &http.Server{
+			Addr:              addr,
+			Handler:           ps,
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		ps.server = srv
+		ps.ln = ln
+		e.servers[inPort] = ps
+
+		go func(p int, s *http.Server, l net.Listener) {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[ProxyEngine] 端口 %d 监听协程异常恢复: %v", p, r)
+				}
+			}()
+			log.Printf("[ProxyEngine] 反代引擎已在端口 127.0.0.1:%d 启动监听 (对接对应隧道的公网打入流量)", p)
+			if err := s.Serve(l); err != nil && err != http.ErrServerClosed {
+				log.Printf("[ProxyEngine] 端口 %d 反代监听退出: %v", p, err)
+			}
+		}(inPort, srv, ln)
+	}
 }
 
 func (e *InProcessProxyEngine) Stop() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	atomic.StoreInt32(&e.running, 0)
-	if e.server != nil {
+	for p, ps := range e.servers {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_ = e.server.Shutdown(ctx)
+		_ = ps.server.Shutdown(ctx)
 		cancel()
-		e.server = nil
+		delete(e.servers, p)
 	}
-	if e.healthSrv != nil {
-		_ = e.healthSrv.Close()
-		e.healthSrv = nil
-	}
+}
+
+func (e *InProcessProxyEngine) ActiveCount() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return len(e.servers)
 }
 
 // ---------- 外部接口兼容（与现有 Store/UI 对接） ----------
 
 func detectCaddy() CaddyInfo {
-	isRunning := atomic.LoadInt32(&globalProxyEngine.running) == 1
+	activeCount := globalProxyEngine.ActiveCount()
 	return CaddyInfo{
 		Installed: true,
-		Version:   "Embedded In-Process Engine (Caddy-Compatible)",
+		Version:   "Embedded Multi-Port Engine (Caddy-Compatible)",
 		Path:      "in-process",
-		Running:   isRunning,
+		Running:   activeCount > 0,
 		PID:       os.Getpid(),
 		Latest:    "v2.9.1",
 	}
 }
 
 func (s *Store) reloadCaddy() error {
-	globalProxyEngine.UpdateRoutes(s.Proxies)
-	for _, p := range s.Proxies {
-		log.Printf("[Proxy] 分流规则生效: https://%s%s -> 127.0.0.1:%d", p.Domain, p.Path, p.UpstreamPort)
-	}
-	realPort, err := globalProxyEngine.EnsureRunning(s.IngressPort)
-	if err == nil && realPort != s.IngressPort {
-		s.mu.Lock()
-		s.IngressPort = realPort
-		_ = s.saveLocked()
-		s.mu.Unlock()
-	}
-	return err
-}
-
-func (s *Store) setIngressPort(newPort int) (int, error) {
-	realPort, err := globalProxyEngine.EnsureRunning(newPort)
-	if err != nil {
-		return 0, err
-	}
 	s.mu.Lock()
-	s.IngressPort = realPort
-	_ = s.saveLocked()
-	var toRestart []*Tunnel
-	for _, t := range s.Tunnels {
-		if t.Status == "running" && t.Mode == "quick" {
-			toRestart = append(toRestart, t)
-		}
-	}
+	tCopy := append([]*Tunnel(nil), s.Tunnels...)
+	pCopy := append([]*Proxy(nil), s.Proxies...)
 	s.mu.Unlock()
 
-	// 异步热重连活跃临时隧道以对接新端口
-	go func() {
-		for _, t := range toRestart {
-			_ = s.stopTunnel(t.ID)
-			time.Sleep(500 * time.Millisecond)
-			_ = s.startTunnel(t)
-		}
-	}()
-	return realPort, nil
+	globalProxyEngine.SyncListeners(tCopy, pCopy)
+	return nil
 }
 
 func ensureCaddy(force bool) (string, error) {
-	// 内置引擎零下载零依赖，直接返回就绪
 	return "embedded", nil
 }
 
@@ -364,13 +302,21 @@ func (s *Store) startCaddy() error {
 
 func (s *Store) buildCaddyfile() string {
 	var b strings.Builder
-	b.WriteString("# Cunnel In-Process Reverse Proxy Engine (Caddy-Compatible)\n")
-	b.WriteString(fmt.Sprintf("# Global Ingress: 127.0.0.1:%d\n\n", s.IngressPort))
-	for _, p := range s.Proxies {
-		b.WriteString(fmt.Sprintf("http://%s%s -> 127.0.0.1:%d\n", p.Domain, p.Path, p.UpstreamPort))
-	}
+	b.WriteString("# Cunnel 内置按需多端口反代引擎 (In-Process Caddy-Compatible)\n\n")
 	if len(s.Proxies) == 0 {
-		b.WriteString("# 当前无已配置的反代规则\n")
+		b.WriteString("# 当前无已配置的反代规则 (所有隧道流量均直通本地端口)\n")
+		return b.String()
+	}
+	tunnelMap := make(map[string]*Tunnel)
+	for _, t := range s.Tunnels {
+		tunnelMap[t.ID] = t
+	}
+	for _, p := range s.Proxies {
+		inPort := 0
+		if t, ok := tunnelMap[p.TunnelID]; ok {
+			inPort = t.Port
+		}
+		b.WriteString(fmt.Sprintf("http://%s%s (打入端口 :%d)  ==>  127.0.0.1:%d\n", p.Domain, p.Path, inPort, p.UpstreamPort))
 	}
 	return b.String()
 }

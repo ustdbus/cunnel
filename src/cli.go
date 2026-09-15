@@ -49,7 +49,7 @@ func handleCLIIfRequested() bool {
 			printCLIHelp()
 			return true
 		case "-v", "--version", "version":
-			fmt.Printf("Cunnel v1.2.2 (Caddy & Cloudflare Tunnel Single-Process Platform)\n")
+			fmt.Printf("Cunnel v1.3.0 (Caddy & Cloudflare Tunnel Single-Process Platform)\n")
 			return true
 		}
 	}
@@ -111,7 +111,6 @@ func printConnectInfo() {
 	if isRunning && overviewData != nil {
 		ov := overviewData["data"].(map[string]any)
 		panelPort := int(ov["panel_port"].(float64))
-		ingressPort := int(ov["ingress_port"].(float64))
 		publicURL := ""
 		if u, ok := ov["panel_tunnel_url"].(string); ok && u != "" {
 			publicURL = u
@@ -120,7 +119,6 @@ func printConnectInfo() {
 		// 运行状态
 		fmt.Printf("  %s● 运行状态:%s  %s运行中 (Active: running)%s\n", colorBold, colorReset, colorGreen, colorReset)
 		fmt.Printf("  %s🏠 本地面板:%s  %shttp://127.0.0.1:%d%s\n", colorBold, colorReset, colorYellow, panelPort, colorReset)
-		fmt.Printf("  %s🔀 反代入口:%s  %shttp://127.0.0.1:%d%s %s(统一高位安全端口)%s\n", colorBold, colorReset, colorYellow, ingressPort, colorReset, colorGray, colorReset)
 
 		// 公网入口
 		if publicURL != "" {
@@ -142,6 +140,7 @@ func printConnectInfo() {
 				name := t["name"].(string)
 				mode := t["mode"].(string)
 				status := t["status"].(string)
+				port := int(t["port"].(float64))
 				domain := ""
 				if d, ok := t["domain"].(string); ok {
 					domain = d
@@ -150,7 +149,8 @@ func printConnectInfo() {
 				if status != "running" {
 					statusColor = colorRed
 				}
-				fmt.Printf("  * %s%s%s [%s模式] -> %s%s%s\n", colorBold, name, colorReset, mode, statusColor, status, colorReset)
+				fmt.Printf("  * %s%s%s [%s模式 | 回源打入: 127.0.0.1:%d] -> %s%s%s\n",
+					colorBold, name, colorReset, mode, port, statusColor, status, colorReset)
 				if domain != "" {
 					fmt.Printf("    域名: %shttps://%s%s\n", colorCyan, domain, colorReset)
 				} else {
@@ -171,13 +171,24 @@ func printConnectInfo() {
 				domain := p["domain"].(string)
 				path := p["path"].(string)
 				upPort := int(p["upstream_port"].(float64))
+				tunPort := 0
+				if tp, ok := p["tunnel_port"].(float64); ok {
+					tunPort = int(tp)
+				}
 				desc := "业务服务"
 				if upPort == panelPort {
 					desc = "Cunnel 控制面板"
 				}
-				fmt.Printf("  * %shttps://%s%s%s  ==>  %s127.0.0.1:%d%s (%s)\n",
-					colorCyan, domain, path, colorReset,
-					colorYellow, upPort, colorReset, desc)
+				if tunPort > 0 {
+					fmt.Printf("  * %shttps://%s%s%s  [隧道打入: %s%d%s] ==> %s127.0.0.1:%d%s (%s)\n",
+						colorCyan, domain, path, colorReset,
+						colorYellow, tunPort, colorReset,
+						colorYellow, upPort, colorReset, desc)
+				} else {
+					fmt.Printf("  * %shttps://%s%s%s  ==>  %s127.0.0.1:%d%s (%s)\n",
+						colorCyan, domain, path, colorReset,
+						colorYellow, upPort, colorReset, desc)
+				}
 			}
 		}
 	} else {
@@ -187,19 +198,16 @@ func printConnectInfo() {
 		if statePath != "" {
 			if data, err := os.ReadFile(statePath); err == nil {
 				var st struct {
-					IngressPort int `json:"ingress_port"`
-					Tunnels     []struct {
+					Tunnels []struct {
 						Name   string `json:"name"`
 						Domain string `json:"domain"`
 						Mode   string `json:"mode"`
+						Port   int    `json:"port"`
 					} `json:"tunnels"`
 				}
 				if json.Unmarshal(data, &st) == nil {
-					if st.IngressPort > 0 {
-						fmt.Printf("  %s🔀 配置入口:%s  http://127.0.0.1:%d\n", colorBold, colorReset, st.IngressPort)
-					}
 					if len(st.Tunnels) > 0 && st.Tunnels[0].Domain != "" {
-						fmt.Printf("  %s🌐 历史入口:%s  https://%s\n", colorBold, colorReset, st.Tunnels[0].Domain)
+						fmt.Printf("  %s🌐 历史入口:%s  https://%s (回源端口: %d)\n", colorBold, colorReset, st.Tunnels[0].Domain, st.Tunnels[0].Port)
 					}
 				}
 			}
